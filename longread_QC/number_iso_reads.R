@@ -32,9 +32,8 @@ suppressMessages(library(reshape2))
   # ccs_output = df: output of the number of ccs reads processed
   # lima_output = df: output of the number of lima reads processed
   # refine_dir; cluster_dir = path:  of refine and cluster directory containing ".json" and "cluster_report.csv" files
-  # cluster_merge = df: read cluster.csv of all the samples merged
 
-number_iso_reads <- function(sample_run, ccs_output, lima_output, refine_dir, cluster_dir, cluster_merge){
+number_iso_reads <- function(ccs_output, lima_output, refine_dir, cluster_dir){
   
   ## Input CCS, LIMA, REFINE files
   # REFINE summary input
@@ -116,6 +115,26 @@ number_iso_reads <- function(sample_run, ccs_output, lima_output, refine_dir, cl
 }
 
 
+## ------------------- plot_transcripts_postisoseq
+
+# Aim: plot the nummber of full-length transcripts by genotype
+# Input: reads_df from wrangled output of number_iso_reads
+  # see examples in isoseq_QC_yield, isoseq_QC_yield_batch
+# Output: box-plot
+plot_transcripts_postisoseq <- function(reads_df){
+  
+  p <- reads_df %>%
+    filter(Description == "Transcripts", !is.na(Genotype)) %>% 
+    ggplot(., aes(x = Genotype, y = value, colour = Genotype)) +
+    geom_boxplot() + geom_point() +  mytheme + 
+    labs(x = "", y = "Number of FL Transcripts (K)") +
+    scale_color_manual(values = c(label_colour("WT"),label_colour("TG"))) + theme(legend.position = "none") +
+    scale_y_continuous(labels = unit_format(unit = "", scale = 1e-3,accuracy = 1))
+  
+  return(p)
+}
+
+
 ## ------------------- isoseq_QC_yield
 
 # Aim: read in sequencing data (user-generated) and output from number_of_reads to generate QC related plots
@@ -151,13 +170,7 @@ iso_QC_yield <- function(reads_df, sequenced){
     scale_x_discrete(labels=c("Polymerase Reads" = "Polymerase", "CCS Reads" = "CCS","FL Reads" = "FL","FLNC reads" = "FLNC",
                               "Poly-A FLNC reads" = "Poly-A FLNC"))
   
-  p4 <- reads_df %>%
-    filter(Description == "Transcripts") %>% 
-    ggplot(., aes(x = Genotype, y = value, colour = Genotype)) +
-    geom_boxplot() + geom_point() +  mytheme + 
-    labs(x = "", y = "Number of FL Transcripts (K)") +
-    scale_color_manual(values = c(label_colour("WT"),label_colour("TG"))) + theme(legend.position = "none") +
-    scale_y_continuous(labels = unit_format(unit = "", scale = 1e-3,accuracy = 1), limits = c(30000,35000))
+  p4 <- plot_transcripts_postisoseq(reads_df)
   
   ### Correlations 
   # Difference between WT and TG yield
@@ -175,4 +188,68 @@ iso_QC_yield <- function(reads_df, sequenced){
   res
   
   return(list(p1,p2,p3,p4))
+}
+
+
+## ------------------- isoseq_QC_yield_batch
+
+# Aim: generate similar plots to isoseq_QC_yield, but for targeted datasets (batched samples)
+# Input:
+  # reads_df = df: number_of_reads function output 1
+  # targetedpheno = df: phenotype file of barcoded samples and batches <Sample> <Phenotype> <Batch> <Barcode>
+  # samples = df: list of samples
+# Output
+  # p1: line-plot - Number of bases processed through the Iso-Seq pipeline
+  # p2: box-plot - Number of transcripts by genotype
+  # p3: box-plot - Number of PolyA Flnc reads by genotype across batch
+
+iso_QC_yield_batch <- function(Reads, targetedpheno, samples){
+  
+  Reads_plot <- Reads %>% mutate(Batch = word(Reads$variable, c(3), sep = fixed("_"))) %>% 
+    full_join(., targetedpheno, by = c("sample" = "Sample")) %>%
+    unite("Batch", Batch.x,Batch.y, na.rm = TRUE) %>%
+    mutate(Batch = recode(Batch, "3b" = "3", "3a" = "3 (partial run)")) %>%
+    mutate(Genotype = Phenotype)
+  
+  p1 <- Reads_plot %>% filter(Description != "Transcripts") %>% filter(Batch != "3 (partial run)") %>%
+    ggplot(., aes(x = Description, y = value, colour = Batch, group = Batch)) +
+    geom_line() + geom_point(size = 3) +  mytheme + theme(legend.position = c(0.8,0.8)) + labs(x = "", y = "Number of Reads (Thousands)") +
+    scale_y_continuous(labels = unit_format(unit = "", scale = 1e-3)) +
+    theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1)) + 
+    scale_colour_discrete(name = "",labels = c("Batch 1 (n = 6)","Batch 2 (n = 9) ","Batch 3 (n = 9)"))
+  
+  p2 <-  plot_transcripts_postisoseq(Reads_plot)
+  
+  p3 <- Reads_plot[Reads_plot$Description == "Poly-A FLNC reads" ,] %>% 
+    filter(!is.na(Genotype)) %>%
+    ggplot(., aes(x = Batch, y = value)) + geom_boxplot() + geom_point(aes(colour = Genotype),size = 3) + mytheme +
+    scale_y_continuous(labels = unit_format(unit = "", scale = 1e-3)) +
+    labs(x = "Batch", y = "Number of Poly-A FLNC Reads (Thousands)") +
+    scale_colour_manual(values = c(label_colour("TG"),label_colour("WT"))) 
+  
+  cat("Number of CCS Reads in Batch:\n")
+  Reads[Reads$Description == "CCS Reads",]
+  
+  cat("Poly-A FLNC Reads across all Batches:\n")
+  polyA_flnc_reads <- Reads_plot[Reads_plot$Description == "Poly-A FLNC reads","value"]/1000
+  cat("Sum number (Thousand):", sum(polyA_flnc_reads),"\n")
+  cat("Mean number (Thousand):", mean(polyA_flnc_reads),"\n")
+  cat("Min number (Thousand):", min(polyA_flnc_reads),"\n")
+  cat("Max number (Thousand):", max(polyA_flnc_reads),"\n")
+  for(i in 1:3){cat("Sum number (Thousand) of Poly-A FLNC Reads in Batch",i,":", 
+                    sum(Reads_plot[Reads_plot$Description == "Poly-A FLNC reads" & Reads_plot$Batch == i,"value"])/1000,"\n")}
+  
+  # not normally distributed therefore wilcoxon rank sum test
+  #with(Reads_plot %>% filter(Description == "Transcripts"), shapiro.test(value[Phenotype == "WT"]))
+  #with(Reads_plot %>% filter(Description == "Transcripts"), shapiro.test(value[Phenotype == "TG"]))
+  #var.test(value ~ Phenotype,Reads_plot %>% filter(Description == "Transcripts")) #cannot assume variance
+  wilcox.test(value ~ Phenotype,Reads_plot %>% filter(Description == "Transcripts")) 
+  
+  # correlation of FL transcripts and RIN
+  transcript_RIN <- merge(Reads_plot %>% filter(Description == "Transcripts"), samples, by.x = "sample", by.y = "Sample.ID", all.x = T)
+  #shapiro.test(transcript_RIN$value) # spearman's rank
+  #shapiro.test(transcript_RIN$RIN) 
+  cor.test(transcript_RIN$value,transcript_RIN$RIN, method = "spearman", exact = FALSE)
+  
+  return(list(p1,p2,p3))
 }
