@@ -17,14 +17,15 @@
 # Input:
   # sample = str: sample id
   # case_names = vec: sample ids of cases 
-  # control_names= vec: sample ids of control_names 
+  # control_names = vec: sample ids of control_names 
+  # else_names = vec: name for alternative if not control or case
 # Output:
   # vector of genotypes matching to the input sample ID
 
-classify_genotype <- function(sample, case_names, control_names){
+classify_genotype <- function(sample, case_names, control_names, else_names){
   classified_sample <- if(sample %in% case_names){label_name("case")
   } else if (sample %in% control_names){label_name("control")
-  } else {"J20"
+  } else {else_names
   }
   
   classified_sample <- unlist(classified_sample)

@@ -161,3 +161,13 @@ SQANTI_gene_preparation <- function(data_class_output_file){
   return(isoPerGene)
   #assign(isoPerGene_output_file, isoPerGene, envir=.GlobalEnv)
 }
+
+
+SQANTI_remove3prime <- function(class.files){
+  output <- class.files %>% 
+    mutate(ss_category = paste0(structural_category,"_", subcategory)) %>%
+    filter(ss_category != "ISM_3prime_fragment") %>%
+    mutate(within_50_cage = ifelse(abs(dist_to_cage_peak) <= 50, "Within 50bp","Not within 50bp"))
+  
+  return(output)
+}
