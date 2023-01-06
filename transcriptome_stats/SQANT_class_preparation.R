@@ -1,3 +1,19 @@
+
+
+# annotate_class_binary
+annotate_class_binary  <- function(class.files){
+  
+  class.files <- class.files %>% 
+    mutate(within_50_cage = ifelse(abs(dist_to_cage_peak) <= 50 & !is.na(dist_to_cage_peak), "Within 50bp","Not within 50bp"),
+           within_50_TTS = ifelse(abs(diff_to_TTS) <= 50 & !is.na(diff_to_TTS), "Within 50bp","Not within 50bp"),
+           within_50_TSS = ifelse(abs(diff_to_TSS) <= 50 & !is.na(diff_to_TSS), "Within 50bp","Not within 50bp"),
+           RNASeq_supported = ifelse(min_cov <= 1, "Supported","Not Supported"),
+           within_polya_site = ifelse(is.na(polyA_motif),"No","Yes"),
+           ISM_3prime = ifelse(structural_category == "ISM" & subcategory == "3prime_fragment" , "Yes","No"))
+  
+  return(class.files)
+}
+
 # SQANTI_class_preparation <classification_file> 
 # Aim: Read in classification file generated from SQANTI2
 SQANTI_class_preparation <- function(class.file,standard) {
@@ -73,9 +89,21 @@ SQANTI_class_preparation <- function(class.file,standard) {
     data.class$Log_ISOSEQ_TPM <- log10(data.class$ISOSEQ_TPM)
   }
   
+  # further annotate classification files by within_cage etc.
+  data.class <- annotate_class_binary(data.class)
+  
   print(paste0("Loading classification file:",class.file))
   #assign(data_class_output_file, data.class, envir=.GlobalEnv)
   return(data.class)
+}
+
+
+SQANTI_remove_3prime <- function(class.files){
+  output <- class.files %>% 
+    mutate(cate = paste0(structural_category,"_", subcategory)) %>%
+    filter(cate!= "ISM_3prime_fragment")
+  
+  return(output)
 }
 
 
@@ -88,19 +116,10 @@ targeted_remove_3ISM <- function(TargetGenelist,class.files){
   return(class.files)
 }
 
-group_descriptions <- function(class.files){
-  class.files <- class.files %>% 
-    mutate(within_50_cage = ifelse(abs(dist_to_cage_peak) <= 50 & !is.na(dist_to_cage_peak), "Within 50bp","Not within 50bp"),
-           within_50_TTS = ifelse(abs(diff_to_TTS) <= 50 & !is.na(diff_to_TTS), "Within 50bp","Not within 50bp"),
-           within_50_TSS = ifelse(abs(diff_to_TSS) <= 50 & !is.na(diff_to_TSS), "Within 50bp","Not within 50bp"),
-           within_polya_site = ifelse(is.na(polyA_motif),"No","Yes"))
-  
-  return(class.files)
-}
 
 subset_class_phenotype <- function(class.files, phenotype_file, condition){
   
-  class.files <- group_descriptions(class.files) 
+  class.files <- annotate_class_binary(class.files) 
   cols = c("isoform", "min_cov","associated_gene", "exons", "length", "dist_to_cage_peak", 
            "within_50_cage", "dist_to_polya_site","within_50_TTS","within_50_TSS",
            "within_polya_site","polyA_motif","structural_category","subcategory",
@@ -163,11 +182,6 @@ SQANTI_gene_preparation <- function(data_class_output_file){
 }
 
 
-SQANTI_remove3prime <- function(class.files){
-  output <- class.files %>% 
-    mutate(ss_category = paste0(structural_category,"_", subcategory)) %>%
-    filter(ss_category != "ISM_3prime_fragment") %>%
-    mutate(within_50_cage = ifelse(abs(dist_to_cage_peak) <= 50, "Within 50bp","Not within 50bp"))
-  
-  return(output)
-}
+
+
+

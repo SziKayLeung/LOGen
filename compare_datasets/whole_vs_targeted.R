@@ -7,7 +7,8 @@
 ##
 ## ---------- Functions -----------------
 ## 
-## on_target_plot
+## whole_vs_targeted_exp
+## whole_vs_targeted_plots
 ##   
 ## ---------- Notes -----------------
 ##
