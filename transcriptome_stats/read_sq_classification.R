@@ -1,37 +1,73 @@
+#!/usr/bin/env Rscript
+## ----------Script-----------------
+##
+## Purpose: prepare SQANTI classification files to be read in for downstream plotting etc
+##
+## Author: Szi Kay Leung (S.K.Leung@exeter.ac.uk)
+##
+## ---------- Functions -----------------
+## 
+## gene_summary_info
+## corr_exon_length_num
+##   
+## ---------- Notes -----------------
+## 
+## Correlation reported is only of multi-exonic isoforms (mono-exonic isoforms are removed)
+## Pre-requisite: 
+## 1. SQANTI classification file has a tabulated "FL" column for each isoform with sum reads across each sample
+## 2. function: draw_density.R from aesthetics_basics_plots.R
 
 
-# annotate_class_binary
+## ------------------- annotate_class_binary
+
+# Aim: create extra columns in the classification files for binary purposes
+  # i.e. whether within 50bp of cage peak, 50bp of TTS, 50bp of TSS etc
+# Note:
+  # within_peaks are all assumed within 50bp
+  # RNA-Seq support assumed if min_cov > 1, then supported otherwise not supported 
+  # within_polyA site assumed if there is a polyA motif
+  # 3'fragment assumed if structural category is ISM with 3 prime fragment (assumed partially degraded products)
+# Input:
+  # class.files = df: SQANTI classification file after running SQANTI_class_preparation()
+# Output:
+  # class.files = df: additional columns
+
 annotate_class_binary  <- function(class.files){
   
   class.files <- class.files %>% 
     mutate(within_50_cage = ifelse(abs(dist_to_cage_peak) <= 50 & !is.na(dist_to_cage_peak), "Within 50bp","Not within 50bp"),
            within_50_TTS = ifelse(abs(diff_to_TTS) <= 50 & !is.na(diff_to_TTS), "Within 50bp","Not within 50bp"),
            within_50_TSS = ifelse(abs(diff_to_TSS) <= 50 & !is.na(diff_to_TSS), "Within 50bp","Not within 50bp"),
-           RNASeq_supported = ifelse(min_cov <= 1, "Supported","Not Supported"),
+           RNASeq_supported = ifelse(min_cov >= 1, "Supported","Not Supported"),
            within_polya_site = ifelse(is.na(polyA_motif),"No","Yes"),
            ISM_3prime = ifelse(structural_category == "ISM" & subcategory == "3prime_fragment" , "Yes","No"))
   
   return(class.files)
 }
 
-# SQANTI_class_preparation <classification_file> 
-# Aim: Read in classification file generated from SQANTI2
-SQANTI_class_preparation <- function(class.file,standard) {
+
+## ------------------- SQANTI_class_preparation
+
+# Aim: read and wrangle classification file generated from SQANTI
+# Note: function adapted from Liz Tseng (SQANTI_report2.R)
+# Input:
+  # path.class.file = str: path of classification file generated from SQANTI
+  # standard = str: <standard/ns> 
+    # "standard" assumes that the quantification of multiple samples are present in file (<sample>.FL)
+    # therefore recreate FL column by summing across all .FL 
+    # create ISOSEQ_TPM and Log_ISOSEQ_TPM columns
+# Output: df 
+
+SQANTI_class_preparation <- function(path.class.file,standard){
+  
+  cat("Loading classification file:",class.file,"\n")
   data.class = read.table(class.file, header=T, as.is=T, sep="\t")
   rownames(data.class) <- data.class$isoform
   
-  # (Liz) not sorting by expression
-  #if (!all(is.na(data.class$iso_exp))){
-  #  sorted <- data.class[order(data.class$iso_exp, decreasing = T),]
-  #  FSMhighestExpIsoPerGene <- sorted[(!duplicated(sorted$associated_gene) & sorted$structural_category=="full-splice_match"),"isoform"]
-  #  data.class[which(data.class$isoform%in%FSMhighestExpIsoPerGene),"RTS_stage"] <- FALSE
-  #  write.table(data.class, file=class.file, row.names=FALSE, quote=F, sep="\t")
-  #}
-  
-  xaxislevelsF1 <- c("full-splice_match","incomplete-splice_match","novel_in_catalog","novel_not_in_catalog", "genic","antisense","fusion","intergenic","genic_intron");
+  xaxislevelsF1 <- c("full-splice_match","incomplete-splice_match","novel_in_catalog","novel_not_in_catalog", "genic","antisense","fusion","intergenic","genic_intron")
   xaxislabelsF1 <- c("FSM", "ISM", "NIC", "NNC", "Genic_Genomic",  "Antisense", "Fusion","Intergenic", "Genic_Intron")
   
-  legendLabelF1 <- levels(as.factor(data.class$coding));
+  legendLabelF1 <- levels(as.factor(data.class$coding))
   
   data.class$structural_category = factor(data.class$structural_category,
                                           labels = xaxislabelsF1, 
@@ -42,17 +78,11 @@ SQANTI_class_preparation <- function(class.file,standard) {
   data.FSM <- subset(data.class, (structural_category=="FSM" & exons>1))
   data.ISM <- subset(data.class, (structural_category=="ISM" & exons>1))
   
-  
-  
   # Label Empty blanks in associated_gene column as "Novel Genes_PB_<isoform_ID>"
   data.class[data.class$associated_gene == "",]
-  data.class$associated_gene[data.class$associated_gene == ""] <- paste0("novelGene_PB.",
-                                                                         word(data.class$isoform[data.class$associated_gene == ""],c(2), 
-                                                                              sep = fixed ('.')
-                                                                         ))
+  data.class$associated_gene[data.class$associated_gene == ""] <- paste0("novelGene_PB.", word(data.class$isoform[data.class$associated_gene == ""],c(2), sep = fixed ('.')))
   
   # Create a new attribute called "novelGene"
-  
   data.class$novelGene <- "Annotated Genes"
   data.class[grep("novelGene", data.class$associated_gene), "novelGene"] <- "Novel Genes"
   data.class$novelGene = factor(data.class$novelGene,
@@ -60,7 +90,6 @@ SQANTI_class_preparation <- function(class.file,standard) {
                                 ordered=TRUE)
   
   # Create a new attribute called "exonCat"
-  
   data.class[which(data.class$exons>1), "exonCat"] <- "Multi-Exon"
   data.class[which(data.class$exons==1), "exonCat"] <- "Mono-Exon"
   data.class$exonCat = factor(data.class$exonCat,
@@ -81,7 +110,6 @@ SQANTI_class_preparation <- function(class.file,standard) {
     dat <- data.class %>% dplyr::select(starts_with("FL.")) %>% mutate(total =  rowSums(.[1:ncol(.)]))
     data.class$FL <- dat$total
     
-    
     # convert SQANTI FL to TPM (based on E.Tseng's SQANTI2.report https://github.com/Magdoll/SQANTI2)
     total_fl <- sum(data.class$FL, na.rm=T)
     #print(paste0("Total FL counts:", total_fl))
@@ -91,51 +119,20 @@ SQANTI_class_preparation <- function(class.file,standard) {
   
   # further annotate classification files by within_cage etc.
   data.class <- annotate_class_binary(data.class)
-  
-  print(paste0("Loading classification file:",class.file))
-  #assign(data_class_output_file, data.class, envir=.GlobalEnv)
+
   return(data.class)
 }
 
 
-SQANTI_remove_3prime <- function(class.files){
-  output <- class.files %>% 
-    mutate(cate = paste0(structural_category,"_", subcategory)) %>%
-    filter(cate!= "ISM_3prime_fragment")
-  
-  return(output)
-}
+## ------------------- SQANTI_gene_preparation
 
-
-targeted_remove_3ISM <- function(TargetGenelist,class.files){
-  class.files <- class.files %>% 
-    mutate(cate = paste0(structural_category,"_", subcategory)) %>% 
-    .[.$cate != "ISM_3prime_fragment",] %>% filter(associated_gene %in% TargetGenelist) 
-  class.files["FL"] <- rowSums(class.files[ , grepl( "FL." , names(class.files))])
-  
-  return(class.files)
-}
-
-
-subset_class_phenotype <- function(class.files, phenotype_file, condition){
-  
-  class.files <- annotate_class_binary(class.files) 
-  cols = c("isoform", "min_cov","associated_gene", "exons", "length", "dist_to_cage_peak", 
-           "within_50_cage", "dist_to_polya_site","within_50_TTS","within_50_TSS",
-           "within_polya_site","polyA_motif","structural_category","subcategory",
-           "diff_to_TTS","diff_to_TSS","diff_to_gene_TTS","diff_to_gene_TSS","structural_category")
-  
-  class.files <- class.files %>% 
-    dplyr::select(cols, paste0("FL.", phenotype_file[phenotype_file$Phenotype == condition,"Sample.ID"])) %>% 
-    mutate(TotalFL = rowSums(.[paste0("FL.", phenotype_file[phenotype_file$Phenotype == condition,"Sample.ID"])])) %>%
-    filter(TotalFL > 0) %>% mutate(Dataset = condition) 
-  
-  return(class.files)
-}
+# Aim: generate the number of isoforms associated with gene (binned)
+  # Note: function adapted from Liz Tseng (SQANTI_report2.R)
+# Input:
+  # data_class_output_file = df: SQANTI classification file after processing SQANTI_class_preparation()
 
 SQANTI_gene_preparation <- function(data_class_output_file){
   
-  # ----------------------------------------------------------
   # Make "isoPerGene" which is aggregated information by gene
   #  $associatedGene - either the ref gene name or novelGene_<index>
   #  $novelGene      - either "Novel Genes" or "Annotated Genes"
@@ -143,7 +140,6 @@ SQANTI_gene_preparation <- function(data_class_output_file){
   #  $geneExp        - gene expression info
   #  $nIso           - number of isoforms associated with this gene
   #  $nIsoCat        - splicing complexity based on number of isoforms
-  # ----------------------------------------------------------
   
   if (!all(is.na(data_class_output_file$gene_exp))){
     isoPerGene = aggregate(data_class_output_file$isoform,
@@ -178,10 +174,55 @@ SQANTI_gene_preparation <- function(data_class_output_file){
   isoPerGene$Sample <- Sample_Type
   
   return(isoPerGene)
-  #assign(isoPerGene_output_file, isoPerGene, envir=.GlobalEnv)
 }
 
 
+## ------------------- SQANTI_remove_3prime
+
+# Aim: remove ISM 3'fragments that are assumed to be degraded
+# Input:
+  # class.files = df: SQANTI classification file after processing SQANTI_class_preparation()
+
+SQANTI_remove_3prime <- function(class.files){
+  
+  output <- class.files %>% 
+    mutate(cate = paste0(structural_category,"_", subcategory)) %>%
+    filter(cate!= "ISM_3prime_fragment")
+  
+  return(output)
+}
 
 
+## ------------------- targeted_remove_3ISM
 
+# Aim: remove ISM 3'fragments that are assumed to be degraded and retain only associated isoforms of target genes
+# Input:
+  # TargetGenelist = vec: list of target genes of interest  
+  # class.files = df: SQANTI classification file after processing SQANTI_class_preparation()
+
+targeted_remove_3ISM <- function(TargetGenelist, class.files){
+  
+  class.files <- SQANTI_remove_3prime(class.files) %>% filter(associated_gene %in% TargetGenelist) 
+  class.files["FL"] <- rowSums(class.files[, grepl( "FL." , names(class.files))])
+  
+  return(class.files)
+}
+
+
+## ------------------- subset_class_phenotype
+
+subset_class_phenotype <- function(class.files, phenotype_file, condition){
+  
+  class.files <- annotate_class_binary(class.files) 
+  cols = c("isoform", "min_cov","associated_gene", "exons", "length", "dist_to_cage_peak", 
+           "within_50_cage", "dist_to_polya_site","within_50_TTS","within_50_TSS",
+           "within_polya_site","polyA_motif","structural_category","subcategory",
+           "diff_to_TTS","diff_to_TSS","diff_to_gene_TTS","diff_to_gene_TSS","structural_category")
+  
+  class.files <- class.files %>% 
+    dplyr::select(cols, paste0("FL.", phenotype_file[phenotype_file$Phenotype == condition,"Sample.ID"])) %>% 
+    mutate(TotalFL = rowSums(.[paste0("FL.", phenotype_file[phenotype_file$Phenotype == condition,"Sample.ID"])])) %>%
+    filter(TotalFL > 0) %>% mutate(Dataset = condition) 
+  
+  return(class.files)
+}
