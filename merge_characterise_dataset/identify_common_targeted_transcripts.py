@@ -1,224 +1,358 @@
 #!/usr/bin/env python3
-# Szi Kay Leung (sl693@exeter.ac.uk)
-# Parse through multiple files to find the number of transcripts commonly and uniquely detected by ONT and Iso-Seq 
 
+"""
+Author: Szi Kay Leung (S.K.Leung@exeter.ac.uk)
+Aim: Parse through gffcompare output to identify commonly matched isoforms between ONT and Iso-Seq dataset
+Functions:
+    read_input_files(args)
+    group_isoforms(args, sq, Cuff_tmap)
+    merge_gtf(args, allID, sq, Cuff_tmap_exact)
+    classifier_dataset(id1, id2, id1name, id2name)
+    tabulate_abundance(args, sq, allID, Cuff_tmap_exact)
+Pre-requisites:
+    Ensure the counts at the sample level are included in the sqanti classification files
+    Run merge_talon_sqanti_forcounts.R for ONT dataset to include the counts
+    Sample ID in the sqanti classification file and the IDs in the args.sample need to match
+"""
+
+# packages
 import pandas as pd
 from gtfparse import read_gtf
+from datetime import date 
 import csv
 import sys
 import argparse
-
-## Require Target Gene List to convert ENSEMBL Id to Gene name 
-TargetGenes_Ensembl_ID = "/gpfs/mrc0/projects/Research_Project-MRC148213/sl693/Scripts/IsoSeq_Tg4510/Raw_Data/Targeted_Transcriptome/TargetGenesEnsembleId.txt"
-
-def read_and_subset_target_genes(sqanti_input_file, abundance_file, dataset):
-    TargetGene  = ["Abca1","Sorl1","Mapt","Bin1","Tardbp","App","Abca7","Ptk2b","Ank1","Fyn","Clu","Cd33","Fus","Picalm","Snca","Apoe","Trpa1","Rhbdf2","Trem2","Vgf"]
-    print("Reading:", sqanti_input_file)
-    df = pd.read_csv(sqanti_input_file, sep = "\t",dtype={"bite": "string","polyA_motif":"string"}) 
-    
-    if dataset == "ONT":
-        abundance = pd.read_csv(abundance_file, sep = "\t")
-        Samples = ["S19","K24","L22","M21","O18","O23","O22","P19","T20","Q20","Q21","S18","S23","Q18","Q17","L18","Q23","T18"]
-        abundance = abundance.loc[:, abundance.columns.isin(["annot_transcript_id"] + Samples)]
-        abundance["FL"] = abundance.sum(axis=1)
-        df.drop('FL', axis=1, inplace=True)
-        df = df.merge(abundance, left_on='isoform', right_on='annot_transcript_id') 
-    
-    df = df[df['associated_gene'].isin(TargetGene)]
-    return(df)
+import os
 
 
+# LOGen modules
+sys.path.append("/gpfs/mrc0/projects/Research_Project-MRC148213/sl693/scripts/LOGen/miscellaneous")
+sys.path.append("/gpfs/mrc0/projects/Research_Project-MRC148213/sl693/scripts/LOGen/merge_characterise_dataset")
+import read_write as rw
+import subset_fasta_gtf as sub
+import subset_targetgenes_classfiles as sub_target
+
+# turn off warnings in this script (relating to loc)
+pd.options.mode.chained_assignment = None  # default='warn'
+
+
+"""
+read input files <sqanti classification files> and save df as dictionary(pbid:sequence)
+read gffcompare tmap output file and filter by target genes using ensembl ID
+:param args: args.tgenes_ens, args.iso, args.ont_unfil, args.ont_fil, args.cuff
+:returns sq: dictionary of sqanti classification files 
+:returns Cuff_tmap: gffcompare tmap output file
+"""
 def read_input_files(args):
-    IsoSeq = read_and_subset_target_genes(args.iso,"NA","Iso-Seq")
-    ONT_Unfiltered = read_and_subset_target_genes(args.ont_1,args.a_ont,"ONT")
-    ONT_Filtered =  read_and_subset_target_genes(args.ont_2,args.a_ont,"ONT")     
+    
+    # read sqanti classification files and subset by associated target genes
+    # save classification files into dictionary
+    sq = {'iso' : sub_target.read_and_subset_target_genes(args.tgenes_ens, args.iso),
+        'ont_unfilter' : sub_target.read_and_subset_target_genes(args.tgenes_ens, args.ont_unfil),
+        'ont_filter' : sub_target.read_and_subset_target_genes(args.tgenes_ens, args.ont_fil)}
+    
+    # extract only target gene (using ensembl ID) in gffcompare output
+    TargetGene_file = pd.read_csv(args.tgenes_ens, sep = "\t", header = None)
+    TargetGene_Ensembl = list(TargetGene_file[[0]].values.ravel())
+    
     Cuff_tmap = pd.read_csv(args.cuff, sep = "\t") 
+    Cuff_tmap = Cuff_tmap[Cuff_tmap['qry_gene_id'].isin(TargetGene_Ensembl)]
+            
+    return sq, Cuff_tmap
     
-    #ONT_Abundance = pd.read_csv(args.a_ont_1, sep = "\t")    
-    #ONT_Filtered_Abundance = pd.read_csv(args.a_ont_2, sep = "\t")
-    #ONT_UnFiltered_SQANTI_Abundance = pd.merge(ONT_Abundance,ONT_SQANTI, left_on="annot_transcript_id",right_on="isoform",how="left")
-    #ONT_UnFiltered_SQANTI_Abundance.drop('isoform', axis=1, inplace=True) # to avoid downstream merge complications
+
+"""
+identify and group isoforms between Iso-Seq and ONT dataset using gffcompare output
+matched isoforms defined as "=" in gffcompare output (tmap file)
+:param args: args.o_dir
+:returns allID: dictionary of groups of isoforms
+:returns Cuff_tmap_exact: gffcompare tmap output file with exact match ("=") of isoforms
+"""
+def group_isoforms(args, sq, Cuff_tmap):
     
-    return IsoSeq, ONT_Unfiltered, ONT_Filtered, Cuff_tmap
+    # Note: gffcompare uses TALON input therefore associated_genes may be wrong in Cuff_tmap 
+    # and isoforms are filtered out as not in target gene 
+    misanno_Cufftmap = list(set(Cuff_tmap["ref_id"]) - set(sq["iso"]["isoform"]))
+    if len(misanno_Cufftmap) > 0:
+        print("Mis-annotated isoforms as target isoforms in TALON/Gffcompare:", misanno_Cufftmap)
 
-
-def write_output_id(output_file, ID_List):
-    textfile = open(output_file, "w")
-    print("Writing output to:", output_file)
-    for element in ID_List:
-        textfile.write(element + "\n")
-    textfile.close()
-
-
-def identify_ID_and_stats(IsoSeq,Cuff_tmap,ONT_Unfiltered,ONT_Filtered,output_dir):
-   
-    ONT_Unfiltered_IDs = list(ONT_Unfiltered["isoform"])
-    ONT_Filtered_IDs = list(ONT_Filtered["isoform"])
-    
+    # remove misannotated isoforms from gffcompare output
+    Cuff_tmap = Cuff_tmap[Cuff_tmap["ref_id"].isin(misanno_Cufftmap) == False]
+       
+    # only extracting the isoforms with exact match "=" from gffcompare output
     Cuff_tmap_exact = Cuff_tmap[[True if i in ["="] else False for i in Cuff_tmap.class_code]]
     
-    # list of PacBio transcripts that are identically matched to ONT transcriptome
-    PB_detected = list(Cuff_tmap_exact.ref_id.unique())
-    PB_detected_TargetGenes = list(set(PB_detected).intersection(IsoSeq["isoform"]))
+    # create a column with new matched ID for matched transcripts
+    Cuff_tmap_exact.loc[:,"matched_id"] = Cuff_tmap_exact["ref_id"] + "_" + Cuff_tmap_exact["qry_id"]
     
-    # filter for Target Genes 
-    Cuff_tmap_exact = Cuff_tmap_exact[Cuff_tmap_exact['ref_id'].isin(PB_detected_TargetGenes)]
+    # group and generate list of isoforms
+    '''
+    i) ID = list of isoforms from input file 
+    Iso-Seq & ONT sqanti classification file
+    Gffcompare tmap output file 
+    ONT_unfilter_unique: ONT isoforms discarded using TALON filtering
+    NB: Iso-Seq gtf used as reference when running gffcompare, 
+        therefore ref_id = Iso-Seq isoforms, qry_id = ONT isoforms
+        ONT unfiltered gtf used for gffcompare
     
-    # ONT Transcripts that are exact match to Iso-Seq (independent of Filtered or not)     
-    ONT_ID_Match = list(Cuff_tmap_exact["qry_id"].unique())
+    ii) matchID = list of isoforms that are matched based on gffcompare output
+    iso_match = Iso-Seq isoforms found in ONT dataset (unfiltered)
+    ont_filter_match = ONT isoforms in ONT filtered dataset also found in Iso-Seq dataset
+    ont_unfilter_match = ONT isoforms unique in ONT unfiltered dataset also found in Iso-Seq dataset 
+    (i.e. otherwise would have discarded)
+        
+    iii) unmatchID = list of isoforms that not matched based on gffcompare output
+    iso_unmatch = Iso-Seq isoforms not found in ONT dataset (unfiltered)
+    ont_unfilter_unmatch = ONT isoforms discarded under TALON filtering and not found in Iso-Seq dataset
+    ont_filter_unmatch = ONT isoforms in ONT filtered dataset not found in Iso-Seq dataset
     
-    # ONT Filtered Transcripts that are exact match to Iso-Seq 
-    ONT_Filtered_ID_Match = list(Cuff_tmap_exact.loc[Cuff_tmap_exact["qry_id"].isin(ONT_Filtered_IDs)].qry_id.unique())
+    iv) finalID = list of isoforms from merging of two datasets
+    final_ont = all ONT transcripts kept: 
+                ONT filtered dataset & unique ONT isoforms not retained from filtering but matched in Iso-Seq dataset
+    merge_iso = merged list of isoforms (Iso-Seq+ONT) using Iso-Seq ID from matched isoforms (to avoid redundancy)
+                all Iso-Seq isoforms + ONT filtered but not matched isoforms
+    merge_ont = merged list of isoforms (Iso-Seq+ONT) using ONT ID from matched isoforms (to avoid redundancy)
+                unmatched Iso-Seq isoforms (unique Iso-Seq isoforms) + matched ONT isoforms + ONT filtered but not matched isoforms
+    NB: len(merge_iso) == len(merge_ont)
+    '''
+    ID = {'iso' : list(sq["iso"]["isoform"]),
+        'ont_unfilter' : list(sq["ont_unfilter"]["isoform"]),
+        'ont_filter': list(sq["ont_filter"]["isoform"]),
+        'ont_unfilter_unique' : list(set(sq["ont_unfilter"]["isoform"]) - set(sq["ont_filter"]["isoform"])),
+        'iso_match' : list(set(Cuff_tmap_exact["ref_id"])),
+        'ont_match': list(set(Cuff_tmap_exact["qry_id"]))}
+
+    matchID = {'iso_match' : ID["iso_match"],
+        'ont_filter_match': list(set(ID["ont_match"]).intersection(ID["ont_filter"])),
+        'ont_unfilter_match': list(set(ID["ont_match"]) - set(ID["ont_match"]).intersection(ID["ont_filter"]))}
+
+    unmatchID = {'iso_unmatch' : list(set(ID["iso"]) - set(matchID["iso_match"])),
+        'ont_unfilter_unmatch' : list(set(ID["ont_unfilter_unique"]) - set(matchID["ont_unfilter_match"])),
+        'ont_filter_unmatch' : list(set(ID["ont_filter"]) - set(matchID["ont_filter_match"]))}
+
+    finalID = {'final_ont' : list(matchID["ont_unfilter_match"] + ID["ont_filter"]),
+        'merge_iso' : list(ID["iso"] + unmatchID["ont_filter_unmatch"]),
+        'merge_ont' : list(unmatchID["iso_unmatch"] + ID["ont_match"] + unmatchID["ont_filter_unmatch"])}
+
+    # combine all ID into one dictionary
+    allID = {**ID, **matchID, **unmatchID, **finalID}
+
+    # loop through combined dictionary <name = category; iso = list of isoforms>
+    # extract the number of isoforms under each category; saved under nums
+    # write the isoform ID into txt files
+    nums = {}
+    for name, iso in allID.items():
+        nums[name] = str(len(iso))
+        rw.write_lst(args.o_dir + "/isoform_id/" + name + ".txt", iso)
+    nums
     
-    # Saving the reference of the standard output
-    #sys.stdout = open(output_dir + "/" + "Compare_Stats.txt", 'w')
-    print("***Total number***")
-    print("Iso-Seq transcripts:", len(IsoSeq["isoform"].unique()))
-    print("ONT unfiltered transcripts:", len(ONT_Unfiltered_IDs))
-    print("ONT filtered transcripts:", len(ONT_Filtered_IDs))
-    print("Matched Iso-Seq transcripts:", len(PB_detected_TargetGenes))
-    print("Matched ONT transcripts:", len(ONT_ID_Match))
-    print("Unique Iso-Seq transcripts:", len(set(IsoSeq["isoform"]) - set(PB_detected_TargetGenes)))
-    print("Matched ONT filtered transcripts:", len(ONT_Filtered_ID_Match))
-    #sys.stdout.close()
+    # write nums to output file
+    num_df = pd.DataFrame(nums.items(), columns=['key', 'num_isoforms'])
+    num_df.to_csv(args.o_dir + "/num_isoforms.txt", index=False)
     
-    # ONT Filtered Transcripts, Iso-Seq transcripts, 
-    # Retaining all Iso-Seq transcripts (which would include the ones that are also in the unfiltered dataset)
-    All_Retained = list(set(ONT_Filtered_IDs + list(IsoSeq["isoform"].unique())))
-    ONT_All_Retained = list(set(ONT_Filtered_IDs + list(Cuff_tmap_exact["qry_id"])))
-    print("All ONT Retained:", len(ONT_All_Retained))
-    
-    write_output_id(output_dir + "/ONT_MatchedIDs.txt", ONT_ID_Match)
-    write_output_id(output_dir + "/ONT_Filtered_MatchedIDs.txt", ONT_Filtered_ID_Match)
-    write_output_id(output_dir + "/IsoSeq_MatchedIDs.txt", PB_detected_TargetGenes)
-    write_output_id(output_dir + "/IsoSeqONT_RetainedIDs.txt", ONT_All_Retained)
-    write_output_id(output_dir + "/All_RetainedIDs.txt", All_Retained)
-    Cuff_tmap_exact.to_csv(output_dir + "/CuffcompareExact.txt")
-    Cuff_tmap_exact.to_csv(output_dir + "/ONT_All_Retained.txt")
-    
-    return All_Retained, ONT_All_Retained, Cuff_tmap_exact
+    return allID, Cuff_tmap_exact
 
     
-    
-def writeGTF(inGTF, file_path):
+"""
+generate a finalised merged gtf based, removing redundant ONT matched isoforms
+:param args: args.o_dir
+:param allID: dictionary of groups of isoforms
+:param sq: dictionary of read classification files
+:param Cuff_tmap_exact: gffcompare tmap output file with exact match ("=") of isoforms
+:returns Nothing
+"""
+def merge_gtf(args, allID, sq, Cuff_tmap_exact):
     
     '''
-    #https://github.com/mpg-age-bioinformatics/AGEpy/blob/master/AGEpy/gtf.py
-    Aim: write a GTF dataframe into a file
-    :inGTF = GTF dataframe to be written. 
-    :file_path = path/to/the/file.gtf
+    1. generate Iso-Seq retained gtf and ONT retained gtf
+    2. merge to create a unified retained gtf
+    3. replace Iso-Seq ID of matched isoforms in unified gtf with matched ID containing Iso-seq and ONT ID
+    4. remove redundant ONT matched isoforms in unified gtf
+    5. replace gene_id column with gene names 
+    
+    finalised gtf consisting of isoforms from
+    Iso-Seq/ONT matched: <Iso-Seq-ID>_<ONT_ID>
+    Iso-Seq unmatched: <Iso-Seq-ID>
+    ONT filtered unmatched: <ONT_ID>
+        
+    NB: gtf takes Iso-Seq gtf as reference for matched isoforms
+    matched ID comes from Cuff_tmap_exact
     '''
     
-    cols=inGTF.columns.tolist()
-    if len(cols) == 9:
-        if 'attribute' in cols:
-            df=inGTF
-    else:
-        df=inGTF[cols[:8]]
-        df['attribute']=""
-        for c in cols[8:]:
-            if c == cols[len(cols)-1]:
-                df['attribute']=df['attribute']+c+' "'+inGTF[c].astype(str)+'";'
-            else:
-                df['attribute']=df['attribute']+c+' "'+inGTF[c].astype(str)+'"; '
-                
-    df.to_csv(file_path, sep="\t",header=None,index=None,quoting=csv.QUOTE_NONE)
-
-
-def subset_gtf(retainedID, sqanti_input_gtf, output_dir):
-
-    All_Retained = pd.DataFrame({'Transcripts':retainedID})
+    # generate dataset specific gtf 
+    # Iso_retained_gtf = all Iso-Seq isoforms
+    # ONT_retained_gtf = all ONT filtered isoforms + ONT discarded but matched isoforms
+    Iso_retained_gtf = sub.subset_gtf(allID["iso"], args.iso_gtf, "retained", dir=args.o_dir)
+    ONT_retained_gtf = sub.subset_gtf(allID["final_ont"], args.ont_gtf, "retained", dir=args.o_dir)
     
-    gffcompare_gtf = read_gtf(sqanti_input_gtf) 
-    output_name = sqanti_input_gtf.split("/")[-1]
-    output_name = output_dir + "/" + output_name.split("_")[0] + "_Final.gtf"
+    # merge Iso-Seq and ONT retained gtf
+    # NB: redundant isoforms at this point, whereby matching isoforms appear twice with Iso-Seq and ONT IDs
+    All_retained_gtf = pd.concat([Iso_retained_gtf, ONT_retained_gtf])
     
-    NewId_Retained = list(gffcompare_gtf[gffcompare_gtf['transcript_id'].isin(All_Retained["Transcripts"])]["transcript_id"])
-    FilteredGtf = gffcompare_gtf[gffcompare_gtf['transcript_id'].isin(NewId_Retained)]
-    FilteredGtf = FilteredGtf[["seqname","source","feature","start","end","score","strand","frame","transcript_id","gene_id"]]
-    
-    print("Writing:", output_name)  
-    writeGTF(FilteredGtf, output_name)
-    
-    return(FilteredGtf)
-    
-
-def merge_gtf(IsoSeq, Iso_SubsetGtf, ONT_SubsetGtf, Cuff_tmap_exact, output_dir):
-    Cuff_tmap_exact["matched_id"] = Cuff_tmap_exact["ref_id"] + str("_") + Cuff_tmap_exact["qry_id"]
+    # create a dictionary: key = Iso-Seq Matched ID (ref_id), value = matched ID
+    # no need to create a dictionary for ONT Matched ID
+    # as ONT matched transcripts are removed to avoid redundancies
+    # thereby using the PacBio transcript as reference for matched IDs
     Matched_dict = dict(zip(Cuff_tmap_exact["ref_id"],Cuff_tmap_exact["matched_id"]))
-    IsoSeqFinal = pd.concat([Iso_SubsetGtf,ONT_SubsetGtf])
-    IsoSeqFinal['transcript_id'].replace(Matched_dict, inplace=True)
+    
+    # replace original Iso-Seq transcript ID with matched ID 
+    All_retained_gtf['transcript_id'].replace(Matched_dict, inplace=True)
     
     # remove ONT transcripts that are already matched with IsoSeq to avoid redundancies
-    IsoSeqFinal = IsoSeqFinal[~IsoSeqFinal['transcript_id'].isin(Cuff_tmap_exact["qry_id"])] 
+    # qry_id = ONT isoforms that are matching given ONT gtf is used as query gtf when running gffcompare
+    All_retained_gtf = All_retained_gtf[~All_retained_gtf['transcript_id'].isin(Cuff_tmap_exact["qry_id"])] 
     
+    print("Writing:", args.o_dir + "/IsoSeqONT_final.gtf")
+    rw.writeGTF(All_retained_gtf, args.o_dir + "/IsoSeqONT_final.gtf")
     
-    print("Writing:", output_dir + "/IsoSeqONT_final.gtf")
-    writeGTF(IsoSeqFinal, output_dir + "/IsoSeqONT_final.gtf")
+    # QC 
+    if not len(set(list(filter(lambda x:'_' in x, All_retained_gtf['transcript_id'])))) == len(allID["iso_match"]):
+        print("Matching isoforms missing in gtf")
+    if len(set(allID["iso_unmatch"]) - set(All_retained_gtf['transcript_id'])) > 0:
+        print("Missing unmatched Iso-Seq isoforms in gtf")
+    if len(set(allID["ont_filter_unmatch"]) - set(All_retained_gtf['transcript_id'])) > 0:
+        print("Missing filtered by unmatched ONT isoforms in gtf")
     
-    ## Convert gene id to gene name 
-    IsoSeqGene_dict = dict(zip(["PB." + i.split(".",2)[1] for i in IsoSeq["isoform"]],IsoSeq["associated_gene"]))
-    TargetGene = pd.read_csv(TargetGenes_Ensembl_ID, sep = "\t", header = None)
+    # Convert gene id to gene name 
+    # gtf gene_name currently either <PB.X> if PacBio dataset of <ENS..> if ONT dataset
+    # create IsoSeqGene_dict and replace gene_ID in gtf
+    IsoSeqGene_dict = dict(zip(["PB." + i.split(".",2)[1] for i in sq["iso"]["isoform"]],sq["iso"]["associated_gene"]))
+    All_retained_gtf['gene_id'].replace(IsoSeqGene_dict, inplace=True)
+    
+    # create TargetGene_dict with Ensembl ID and replace gene_ID in gtf
+    TargetGene = pd.read_csv(args.tgenes_ens, sep = "\t", header = None)
     TargetGene_dict = dict(zip(TargetGene[0],TargetGene[1]))
-    IsoSeqFinal['gene_id'].replace(TargetGene_dict, inplace=True)
-    IsoSeqFinal['gene_id'].replace(IsoSeqGene_dict, inplace=True)
+    All_retained_gtf['gene_id'].replace(TargetGene_dict, inplace=True)
     
-    print("Writing:", output_dir + "/IsoSeqONT_final_genename.gtf")    
-    writeGTF(IsoSeqFinal, output_dir + "/IsoSeqONT_final_genename.gtf")
-    
-    return(IsoSeqFinal)
+    print("Writing:", args.o_dir + "/IsoSeqONT_final_genename.gtf")    
+    rw.writeGTF(All_retained_gtf, args.o_dir + "/IsoSeqONT_final_genename.gtf")
 
 
-def tabulate_abundance(IsoSeqFinal, ONT_Unfiltered, ONT_Filtered, IsoSeq, Cuff_tmap_exact,ONT_All_Retained, output_dir):
-    
-    IsoSeqFinal = IsoSeqFinal[IsoSeqFinal["feature"]=="transcript"].reset_index()
-    #print(list(ONT_Unfiltered))
-    
-    ## ONT
-    ONTcol = ["annot_transcript_id",'S19','K24','L22','M21','O18','O23','O22','P19','T20','Q20','Q21','S18','S23','Q18','Q17','L18','Q23','T18',"ONT_FL"]
-    
-    # Abundance of all other samples    
-    # 1. ONT_unfiltered_retained = SQANTI classification with abundance of ONT transcripts retained in the final downstream
-    # 2. ONT_unfiltered = SQANTI classification with abundance of all ONT unfiltered transcripts
-    ONT_Unfiltered_retained = ONT_Unfiltered.loc[ONT_Unfiltered["isoform"].isin(ONT_All_Retained),] 
-    ONT_Unfiltered_retained.to_csv(output_dir + "/ONT_retained_classification.csv")
-    ONT_Unfiltered.to_csv(output_dir + "/ONT_Unfiltered_Abundance.csv", index=False)  
-    
-    #ONT_UnFiltered_SQANTI_Abundance["ONT_FL"] = ONT_UnFiltered_SQANTI_Abundance[Samples].sum(axis=1)
-    ONT_Unfiltered.rename(columns={'FL': 'ONT_FL'}, inplace=True)
-    ONT_Abundance = pd.merge(IsoSeqFinal[["transcript_id"]],ONT_Unfiltered[ONT_Unfiltered.columns.intersection(ONTcol)], left_on = "transcript_id", right_on = "annot_transcript_id", how = "left").dropna()
-    ONT_Unfiltered.to_csv(output_dir + "/ONT_Unfiltered_Abundance.csv", index=False)   
-    ONT_Unfiltered_retained[ONT_Unfiltered_retained.columns.intersection(ONTcol)].to_csv(output_dir + "/ONT_Retained_Abundance.csv", index=False)  
-    #ONT_Abundance.to_csv(output_dir + "/ONT_Final_Abundance.csv") 
-    
-    
-    ## IsoSeq
-    IsoSeq_Samples = ['K17','K18','K19','K20','K21','K23','K24','L18','L22','M21','O18','O22','O23','P19','Q17','Q18','Q20','Q21','Q23','S18','S19','S23','T18','T20']
-    IsoSeq["IsoSeq_FL"] = IsoSeq[["FL." + x for x in IsoSeq_Samples]].sum(axis=1)
-    IsoSeq_Abundance = pd.merge(IsoSeqFinal[["transcript_id"]],IsoSeq[["isoform","IsoSeq_FL"]], left_on = "transcript_id", right_on = "isoform", how = "left").dropna() 
-    IsoSeq_Abundance.to_csv(output_dir + "/IsoSeq_Abundance.csv")
-    
-    ## Merged         
-    Merged_Abundance = pd.merge(Cuff_tmap_exact[["ref_id","qry_id"]],IsoSeq[["isoform","IsoSeq_FL"]], left_on="ref_id",right_on="isoform",how="left")
-    Merged_Abundance = pd.merge(Merged_Abundance, ONT_Unfiltered[["annot_transcript_id","ONT_FL"]],left_on="qry_id",right_on="annot_transcript_id",how="left")
-    Merged_Abundance["FL"] = Merged_Abundance[["IsoSeq_FL","ONT_FL"]].sum(axis=1)
-    Merged_Abundance["isoform"] = Merged_Abundance["ref_id"] + str("_") + Merged_Abundance["qry_id"]
-    Merged_Abundance.to_csv(output_dir + "/Matched_Abundance.csv")
-    Final_Merged_Abundance = pd.merge(IsoSeqFinal[["transcript_id"]],Merged_Abundance[["isoform","FL"]], left_on = "transcript_id", right_on = "isoform", how = "left").dropna()
-    
-    # Concatenated
-    ONT_Abundance = ONT_Abundance.rename({"ONT_FL":"FL"},axis=1)
-    IsoSeq_Abundance = IsoSeq_Abundance.rename({"IsoSeq_FL":"FL"},axis=1)
-    Concat_Abundance = pd.concat([ONT_Abundance,IsoSeq_Abundance,Final_Merged_Abundance])
-    Concat_Abundance = Concat_Abundance[["transcript_id","FL"]]
-    Concat_Abundance.rename({'transcript_id': 'id','FL': 'MergedFL'}, axis=1, inplace=True)
-    Concat_Abundance["MergedFL"].astype(int)
-    print("Writing:", output_dir + "/Final_Merged_Abundance.csv")
-    Concat_Abundance.to_csv(output_dir + "/Final_Merged_Abundance.csv", index = False)   
-    
-    print("Total number of transcripts for downstream annotations:", len(Concat_Abundance))    
-    return(Concat_Abundance)
+"""
+classify the dataset based on the presence or absence of terms (isoform name) in column
+:param id1: value 1
+:param id2: value 2
+:param id1name: output if value 1 exists (i.e not NA)
+:param id2name: output if value 2 exists (i.e not NA)
+:returns <"Both"> <id1name> <id2name> <"NaN">
+"""
+def classifier_dataset(id1, id2, id1name, id2name):
+    if not pd.isna(id1) and not pd.isna(id2):
+        return("Both")
+    elif pd.isna(id1) and pd.isna(id2):
+        return(id2name)
+    elif not pd.isna(id1) and pd.isna(id2):
+        return(id1name)
+    else:
+        return("NaN")
 
+
+"""
+tabulate abundance across Iso-Seq and ONT dataset (noting matched isoforms)
+matched isoforms defined as "=" in gffcompare output (tmap file)
+:param args: args.sample, args.o_dir
+:param sq: dictionary of sqanti classification files read (Iso-Seq, ONT unfiltered)
+:param allID : dictionary of grouped isoforms 
+:param  Cuff_tmap_exact: df of matched isoforms from gffcompare output
+:returns Nothing
+"""
+def tabulate_abundance(args, sq, allID, Cuff_tmap_exact):
+    
+    '''
+    1. extract the sample ID from each dataset using input args.sample file
+    2. create a final ONT classification file of the ONT isoforms retained (filtered + matched unfiltered)
+    3. calculate sum and median of FL reads across samples per isoform in Iso-Seq and final ONT dataset; 
+       store as ONT_sum_FL, ONT_med_FL, IsoSeq_sum_FL, IsoSeq_med_FL
+    4. create a df with Iso-Seq isoforms and Cuff_tmap_exact to identify which Iso-Seq isoforms are matched
+    5. add ONT isoforms to df to identify which ONT isoforms are matched
+    6. create a "dataset" column in df using classifier_dataset()
+    7. include abundance at a sample level, renaming sample columns with "Iso-Seq" and "ONT" in front to differentiate
+    '''
+    
+    # read in file with sample IDs
+    samples = pd.read_csv(args.sample)
+    
+    # remove NA from list and store in dictionary
+    samples = {'ont' : [x for x in samples['ONT'].values if str(x) != 'nan'],
+               'iso' : [x for x in samples['IsoSeq'].values if str(x) != 'nan']}
+    
+    # create final ONT sqanti classification file by subsetting the ONT isoforms that are retained 
+    sq['final_ont'] = sq['ont_unfilter'].loc[sq['ont_unfilter']['isoform'].isin(allID['final_ont']),] 
+
+    # create two new columns of the sum and median FL reads across samples
+    sq['final_ont'].loc[:,"ONT_sum_FL"] =  sq['final_ont'][samples['ont']].sum(axis=1)
+    sq['final_ont'].loc[:,"ONT_med_FL"] =  sq['final_ont'][samples['ont']].median(axis=1)
+    
+    # NB: Iso-Seq sqanti classification file might have "FL.X" columns, where X is a sample ID
+    # therefore if "FL." is noted in the column names, then paste "FL." in the samples 
+    # before finding the sum and median
+    if len(sq["iso"].filter(like='FL.').columns) > 0:
+        sq['iso'].loc[:,"IsoSeq_sum_FL"] =  sq['iso'][["FL." + x for x in samples['iso']]].sum(axis=1)
+        sq['iso'].loc[:,"IsoSeq_med_FL"] =  sq['iso'][["FL." + x for x in samples['iso']]].median(axis=1)
+        # replace isoseq dataset of samples columns with "FL.X" to "X"
+        sq['iso'].columns = sq['iso'].columns.str.replace('FL.',"")
+    else:
+        sq['iso'].loc[:,"IsoSeq_sum_FL"] =  sq['iso'][samples['iso']].sum(axis=1)
+        sq['iso'].loc[:,"IsoSeq_med_FL"] =  sq['iso'][samples['iso']].median(axis=1)
+    
+    # merge abundance first for Iso-Seq with Cuff_tmap_exact 
+    # need to merge to determine which Iso-Seq isoforms are matched and found in the ONT dataset
+    # merge on "left" to ensure all the Iso-Seq isoforms detected are also captured
+    # right_on = "ref_id" as Iso-Seq gtf used to run gffcompare (therefore ref_id refers to Iso-Seq isoforms)
+    iso_abundance = pd.merge(sq['iso'][["isoform","IsoSeq_sum_FL","IsoSeq_med_FL"]], Cuff_tmap_exact[["ref_id","qry_id","matched_id"]], 
+                         left_on = "isoform", right_on="ref_id", how = "left")
+
+    # merge abundance second to include ONT isoforms in previous abundance file
+    # merge isoforms from ONT final classification file with the qry_id column 
+    # qry_id column kept from previously merging with Cuff_tmap_exact
+    # merge on "outer" to keep all the ONT isoforms that are not matched (i.e does not have a qry_id in cuff_tmap_exact)
+    # and to keep all Iso-Seq isoforms in the iso_abundance
+    abundance = pd.merge(sq['final_ont'][["isoform","ONT_sum_FL","ONT_med_FL"]], iso_abundance,
+                     left_on = "isoform", right_on="qry_id", how = "outer")
+    
+    # rename columns and drop unnecessary columns
+    abundance.columns  = ["ont_isoform","ONT_sum_FL","ONT_med_FL","isoseq_isoform","IsoSeq_sum_FL","IsoSeq_med_FL","ref_id","qry_id","matched_id"]
+    abundance.drop(['ref_id', 'qry_id'], axis=1)
+    
+    # running through each row, determine if isoform is "Both", "ONT", "Iso-Seq" 
+    abundance["dataset"] = abundance.apply(
+        lambda row: classifier_dataset(row['ont_isoform'], row['isoseq_isoform'],"ONT","Iso-Seq"),
+         axis=1)
+    
+    # re-arrange columns
+    abundance = abundance[["dataset","isoseq_isoform","ont_isoform","IsoSeq_sum_FL","ONT_sum_FL","IsoSeq_med_FL","ONT_med_FL","matched_id"]]
+    
+    # include abundance at a sample level
+    # generate a dictionary of the sqanti classification df with only the abundance columns + "isoform" column
+    s_abundance = {
+    'iso' : sq["iso"][["isoform"] + samples["iso"]],
+    'ont' : sq["final_ont"][["isoform"] + samples["ont"]]
+    }
+    
+    # add "Iso-Seq" and "ONT" in front of the abundance column names to differentiate where the samples are from when merging later
+    s_abundance["iso"].columns = ["isoseq_" + x for x in s_abundance["iso"].columns]
+    s_abundance["ont"].columns = ["ont_" + x for x in s_abundance["ont"].columns]
+    
+    # merge the abundance at the sample level with the abundance df originally generated 
+    # 1st merge the original abundance file with the Iso-Seq abundance at sample level; 
+    # merge on "left" to keep all the isoforms in the original abundance file
+    # 2nd merge the now updated Iso-Seq abundance with the ONT abundance at sample level;
+    # merge on "left" to keep all the isoforms that were in the original abundance file, and the Iso-Seq isoforms
+    s_abundance["iso"] = pd.merge(abundance, s_abundance["iso"], on = "isoseq_isoform", how = "left")
+    final_abundance = pd.merge(s_abundance["iso"], s_abundance["ont"], on = "ont_isoform", how = "left")
+    
+    # QC: check the final abundance files has all the isoforms kept from Iso-Seq dataset and final ONT dataset
+    # remove "na" from final_abundance, as there would be NAs from isoforms that are only unique to each dataset
+    if len(set(list(final_abundance["ont_isoform"].dropna())) - set(list(sq["final_ont"]["isoform"]))) > 0:
+        print("ONT isoforms not retained in abundance file")
+        sys.exit()
+        
+    if len(set(list(final_abundance["isoseq_isoform"].dropna())) - set(list(sq["iso"]["isoform"]))) > 0:
+        print("Iso-Seq isoforms not retained in abundance file")
+        sys.exit()
+        
+    print("Writing:", args.o_dir + "/Final_Merged_Abundance.csv")
+    final_abundance.to_csv(args.o_dir + "/Final_Merged_Abundance.csv", index = False)   
 
 
 def main():
@@ -226,25 +360,44 @@ def main():
     parser.add_argument('--iso', "--isoseq_sqanti_class", help='\t\tIso-Seq SQANTI classification output file.')
     parser.add_argument('--iso_gtf', "--isoseq_sqanti_gtf", help='\t\tIso-Seq SQANTI classification gtf output file.')
     parser.add_argument('--ont_gtf',"--ont_unfiltered_sqanti_gtf", help='\t\tONT SQANTI classification output gtf file from TALON Unfiltered dataset.')
-    parser.add_argument('--ont_1',"--ont_unfiltered_sqanti_class", help='\t\tONT SQANTI classification output file from TALON Unfiltered dataset.')
-    parser.add_argument('--ont_2',"--ont_filtered_sqanti_class", help='\t\tONT SQANTI classification output file from TALON filtered dataset.')
-    parser.add_argument('--a_ont', "--ont_unfiltered_abundance", help='\t\tONT TALON abundance file from Unfiltered dataset.')
+    parser.add_argument('--ont_unfil',"--ont_unfiltered_sqanti_class", help='\t\tONT SQANTI classification output file from TALON Unfiltered dataset.')
+    parser.add_argument('--ont_fil',"--ont_filtered_sqanti_class", help='\t\tONT SQANTI classification output file from TALON filtered dataset.')
     parser.add_argument('--cuff', "--cuff_reference_tmap", help='\t\tGffcompare cuff tmap output from IsoSeq as reference and ONT unfiltered dataset as annotation')
     parser.add_argument('--o_dir', "--output_dir", help='\t\tOutput path and name for list of ONT retained transcript IDs')
+    parser.add_argument('--tgenes_ens', help='\t\tTxt file containing target genes; column 1 - ENSEMBL ID, column 2 - gene name')
+    parser.add_argument('--sample', help='\t\tTxt file containing sampe IDs; column 1 - Iso-Seq, column 2 - ONT')
 
     args = parser.parse_args()
-    IsoSeq, ONT_Unfiltered, ONT_Filtered, Cuff_tmap = read_input_files(args)
-    All_Retained, ONT_All_Retained, Cuff_tmap_exact = identify_ID_and_stats(IsoSeq,Cuff_tmap,ONT_Unfiltered,ONT_Filtered,args.o_dir)
-    Iso_SubsetGtf = subset_gtf(All_Retained, args.iso_gtf, args.o_dir)
-    ONT_SubsetGtf = subset_gtf(All_Retained, args.ont_gtf, args.o_dir)
-    IsoSeqFinal = merge_gtf(IsoSeq, Iso_SubsetGtf, ONT_SubsetGtf, Cuff_tmap_exact, args.o_dir)
-    Final_abundance = tabulate_abundance(IsoSeqFinal, ONT_Unfiltered, ONT_Filtered, IsoSeq, Cuff_tmap_exact,ONT_All_Retained, args.o_dir)
+    
+    # generate params file
+    args.doc = os.path.join(os.path.abspath(args.o_dir) +"/params.txt")
+    tgenes = ', '.join(pd.read_csv(args.tgenes_ens,sep="\t",header=None)[1].values)
+    print("Write arguments to {0}...".format(args.doc, file=sys.stdout))
+    with open(args.doc, 'w') as f:
+        f.write("Date processed\t" + str(date.today()) + "\n")
+        f.write("Input sqanti classification files:\n")
+        f.write("Iso-Seq\t" + args.iso + "\n")
+        f.write("ONT unfiltered\t" + args.ont_unfil + "\n")
+        f.write("ONT filtered\t" + args.ont_fil + "\n")
+        f.write("Input gffcompare\t" + args.cuff + "\n")
+        f.write("Target genes\t" + tgenes + "\n")
+        
+    # make id directory 
+    if not os.path.exists(args.o_dir + "/isoform_id/"):
+        os.mkdir(args.o_dir + "/isoform_id/")
+    
+    # read input files
+    sq, Cuff_tmap = read_input_files(args)
+    
+    # generate a dictionary of IDs based from grouping of isoforms (if matched etc)
+    allID, Cuff_tmap_exact = group_isoforms(args, sq, Cuff_tmap)
+    
+    # generate gtf and abundance file
+    merge_gtf(args, allID, sq, Cuff_tmap_exact)
+    tabulate_abundance(args, sq, allID, Cuff_tmap_exact)
     
     print("All Done")
     
     
 if __name__ == "__main__":
     main()
-
-
-
