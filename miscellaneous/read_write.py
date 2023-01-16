@@ -90,3 +90,19 @@ def writeGTF(inGTF,file_path):
             else:
                 df['attribute']=df['attribute']+c+' "'+inGTF[c].astype(str)+'"; '
     df.to_csv(file_path, sep="\t",header=None,index=None,quoting=csv.QUOTE_NONE)
+
+
+"""
+Write list to output txt file
+:param outtxt: path/to/output/file.txt
+:param lst: list of elements to write out line by line
+:returns nothing
+"""    
+    
+def write_lst(outtxt, lst):
+    
+    textfile = open(outtxt, "w")
+    print("Writing output to:", outtxt)
+    for element in lst:
+        textfile.write(element + "\n")
+    textfile.close()
