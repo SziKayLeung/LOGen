@@ -55,8 +55,10 @@ def read_input_files(args):
     TargetGene_file = pd.read_csv(args.tgenes_ens, sep = "\t", header = None)
     TargetGene_Ensembl = list(TargetGene_file[[0]].values.ravel())
     
+    # read in gffcommpare tmap output
+    # however do not filter by target genes using ref_gene_id, due to misannotations from TALON
+    # resulting in over-filtering of isoforms associated to target gene
     Cuff_tmap = pd.read_csv(args.cuff, sep = "\t") 
-    Cuff_tmap = Cuff_tmap[Cuff_tmap['qry_gene_id'].isin(TargetGene_Ensembl)]
             
     return sq, Cuff_tmap
     
@@ -70,15 +72,6 @@ matched isoforms defined as "=" in gffcompare output (tmap file)
 """
 def group_isoforms(args, sq, Cuff_tmap):
     
-    # Note: gffcompare uses TALON input therefore associated_genes may be wrong in Cuff_tmap 
-    # and isoforms are filtered out as not in target gene 
-    misanno_Cufftmap = list(set(Cuff_tmap["ref_id"]) - set(sq["iso"]["isoform"]))
-    if len(misanno_Cufftmap) > 0:
-        print("Mis-annotated isoforms as target isoforms in TALON/Gffcompare:", misanno_Cufftmap)
-
-    # remove misannotated isoforms from gffcompare output
-    Cuff_tmap = Cuff_tmap[Cuff_tmap["ref_id"].isin(misanno_Cufftmap) == False]
-       
     # only extracting the isoforms with exact match "=" from gffcompare output
     Cuff_tmap_exact = Cuff_tmap[[True if i in ["="] else False for i in Cuff_tmap.class_code]]
     
@@ -91,6 +84,8 @@ def group_isoforms(args, sq, Cuff_tmap):
     Iso-Seq & ONT sqanti classification file
     Gffcompare tmap output file 
     ONT_unfilter_unique: ONT isoforms discarded using TALON filtering
+    iso_match and ont_match: matching Iso-Seq and ONT isoforms associated with target genes
+    hence use "intersection" (i.e common isoforms) with sqanti classification files that have already been subsetted with target genes
     NB: Iso-Seq gtf used as reference when running gffcompare, 
         therefore ref_id = Iso-Seq isoforms, qry_id = ONT isoforms
         ONT unfiltered gtf used for gffcompare
@@ -116,11 +111,11 @@ def group_isoforms(args, sq, Cuff_tmap):
     NB: len(merge_iso) == len(merge_ont)
     '''
     ID = {'iso' : list(sq["iso"]["isoform"]),
-        'ont_unfilter' : list(sq["ont_unfilter"]["isoform"]),
-        'ont_filter': list(sq["ont_filter"]["isoform"]),
-        'ont_unfilter_unique' : list(set(sq["ont_unfilter"]["isoform"]) - set(sq["ont_filter"]["isoform"])),
-        'iso_match' : list(set(Cuff_tmap_exact["ref_id"])),
-        'ont_match': list(set(Cuff_tmap_exact["qry_id"]))}
+          'ont_unfilter' : list(sq["ont_unfilter"]["isoform"]),
+          'ont_filter': list(sq["ont_filter"]["isoform"]),
+          'ont_unfilter_unique' : list(set(sq["ont_unfilter"]["isoform"]) - set(sq["ont_filter"]["isoform"])),
+          'iso_match' : list(set(Cuff_tmap_exact["ref_id"]).intersection(sq["iso"]["isoform"])),
+          'ont_match': list(set(Cuff_tmap_exact["qry_id"]).intersection(sq["ont_unfilter"]["isoform"]))}
 
     matchID = {'iso_match' : ID["iso_match"],
         'ont_filter_match': list(set(ID["ont_match"]).intersection(ID["ont_filter"])),
@@ -237,14 +232,27 @@ classify the dataset based on the presence or absence of terms (isoform name) in
 :returns <"Both"> <id1name> <id2name> <"NaN">
 """
 def classifier_dataset(id1, id2, id1name, id2name):
-    if not pd.isna(id1) and not pd.isna(id2):
-        return("Both")
-    elif pd.isna(id1) and pd.isna(id2):
-        return(id2name)
-    elif not pd.isna(id1) and pd.isna(id2):
-        return(id1name)
-    else:
-        return("NaN")
+    if not pd.isna(id1) and not pd.isna(id2): return("Both")
+    elif pd.isna(id1) and not pd.isna(id2): return(id2name)
+    elif not pd.isna(id1) and pd.isna(id2): return(id1name)
+    else: return("NaN")
+        
+
+"""
+create a column with the amalgamated isoform id in the abundance file for downstream purposes
+currently file has column: isoseq_isoform, ont_isoform with NAs if unique to dataset
+apply function after classifier_dataset()
+:param dataset: <"Both"> <id1name> <id2name> <"NaN">
+:param isoseq_isoform: output if dataset is "Iso-Seq"
+:param ont_isoform: output if dataset is "ONT"
+:param matched_id: output if dataset is "Both"
+:returns <isoseq_isoform"> <ont_isoform> <matched_id> <"NaN">
+"""
+def unionise_id(dataset, isoseq_isoform, ont_isoform, matched_id):
+    if dataset == "Both": return(matched_id)
+    elif dataset == "ONT": return(ont_isoform)
+    elif dataset == "Iso-Seq": return(isoseq_isoform)
+    else: return("NaN")
 
 
 """
@@ -319,8 +327,13 @@ def tabulate_abundance(args, sq, allID, Cuff_tmap_exact):
         lambda row: classifier_dataset(row['ont_isoform'], row['isoseq_isoform'],"ONT","Iso-Seq"),
          axis=1)
     
+    # running through each row, create a unionised column depending on the dataset
+    abundance["union_isoform"] = abundance.apply(
+        lambda row: unionise_id(row["dataset"], row["isoseq_isoform"], row["ont_isoform"], row['matched_id']),
+        axis=1)
+     
     # re-arrange columns
-    abundance = abundance[["dataset","isoseq_isoform","ont_isoform","IsoSeq_sum_FL","ONT_sum_FL","IsoSeq_med_FL","ONT_med_FL","matched_id"]]
+    abundance = abundance[["dataset","union_isoform","isoseq_isoform","ont_isoform","IsoSeq_sum_FL","ONT_sum_FL","IsoSeq_med_FL","ONT_med_FL","matched_id"]]
     
     # include abundance at a sample level
     # generate a dictionary of the sqanti classification df with only the abundance columns + "isoform" column
