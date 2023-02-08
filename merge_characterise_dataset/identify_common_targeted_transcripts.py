@@ -26,11 +26,14 @@ import os
 
 
 # LOGen modules
-sys.path.append("/gpfs/mrc0/projects/Research_Project-MRC148213/sl693/scripts/LOGen/miscellaneous")
-sys.path.append("/gpfs/mrc0/projects/Research_Project-MRC148213/sl693/scripts/LOGen/merge_characterise_dataset")
+LOGEN = "/gpfs/mrc0/projects/Research_Project-MRC148213/sl693/scripts/LOGen/"
+sys.path.append(LOGEN + "miscellaneous")
+sys.path.append(LOGEN + "merge_characterise_dataset")
+sys.path.append(LOGEN + "compare_datasets")
 import read_write as rw
 import subset_fasta_gtf as sub
 import subset_targetgenes_classfiles as sub_target
+import dataset_identifer as di
 
 # turn off warnings in this script (relating to loc)
 pd.options.mode.chained_assignment = None  # default='warn'
@@ -224,38 +227,6 @@ def merge_gtf(args, allID, sq, Cuff_tmap_exact):
 
 
 """
-classify the dataset based on the presence or absence of terms (isoform name) in column
-:param id1: value 1
-:param id2: value 2
-:param id1name: output if value 1 exists (i.e not NA)
-:param id2name: output if value 2 exists (i.e not NA)
-:returns <"Both"> <id1name> <id2name> <"NaN">
-"""
-def classifier_dataset(id1, id2, id1name, id2name):
-    if not pd.isna(id1) and not pd.isna(id2): return("Both")
-    elif pd.isna(id1) and not pd.isna(id2): return(id2name)
-    elif not pd.isna(id1) and pd.isna(id2): return(id1name)
-    else: return("NaN")
-        
-
-"""
-create a column with the amalgamated isoform id in the abundance file for downstream purposes
-currently file has column: isoseq_isoform, ont_isoform with NAs if unique to dataset
-apply function after classifier_dataset()
-:param dataset: <"Both"> <id1name> <id2name> <"NaN">
-:param isoseq_isoform: output if dataset is "Iso-Seq"
-:param ont_isoform: output if dataset is "ONT"
-:param matched_id: output if dataset is "Both"
-:returns <isoseq_isoform"> <ont_isoform> <matched_id> <"NaN">
-"""
-def unionise_id(dataset, isoseq_isoform, ont_isoform, matched_id):
-    if dataset == "Both": return(matched_id)
-    elif dataset == "ONT": return(ont_isoform)
-    elif dataset == "Iso-Seq": return(isoseq_isoform)
-    else: return("NaN")
-
-
-"""
 tabulate abundance across Iso-Seq and ONT dataset (noting matched isoforms)
 matched isoforms defined as "=" in gffcompare output (tmap file)
 :param args: args.sample, args.o_dir
@@ -324,12 +295,12 @@ def tabulate_abundance(args, sq, allID, Cuff_tmap_exact):
     
     # running through each row, determine if isoform is "Both", "ONT", "Iso-Seq" 
     abundance["dataset"] = abundance.apply(
-        lambda row: classifier_dataset(row['ont_isoform'], row['isoseq_isoform'],"ONT","Iso-Seq"),
+        lambda row: di.classifier_dataset(row['ont_isoform'], row['isoseq_isoform'],"ONT","Iso-Seq"),
          axis=1)
     
     # running through each row, create a unionised column depending on the dataset
     abundance["union_isoform"] = abundance.apply(
-        lambda row: unionise_id(row["dataset"], row["isoseq_isoform"], row["ont_isoform"], row['matched_id']),
+        lambda row: di.unionise_id(row["dataset"], row["isoseq_isoform"], row["ont_isoform"], row['matched_id']),
         axis=1)
      
     # re-arrange columns
