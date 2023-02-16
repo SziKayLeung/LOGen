@@ -22,6 +22,7 @@ import glob
 import argparse
 from argparse import Namespace
 import pandas as pd
+import sys
 
 # custom script
 LOGEN = "/gpfs/mrc0/projects/Research_Project-MRC148213/sl693/scripts/LOGen/"
@@ -111,8 +112,8 @@ def demux_dataset(args):
     iso_abundance = dcc.demux(iso_demux_args)
     
     # add dataset names to columns in abundance files for later merging
-    ont_abundance.columns = ["isoform"] + ["ont_" + i for i in ont_abundance.columns[1:]]
-    iso_abundance.columns = ["isoform"] + ["iso_" + i for i in iso_abundance.columns[1:]]
+    ont_abundance.columns = ["isoform"] + ["ONT_" + i for i in ont_abundance.columns[1:]]
+    iso_abundance.columns = ["isoform"] + ["Iso-Seq_" + i for i in iso_abundance.columns[1:]]
     
     # merge ont and iso-seq abundance
     # keep all isoforms in both datasets
@@ -120,8 +121,8 @@ def demux_dataset(args):
     merged_abundance = pd.merge(ont_abundance,iso_abundance,on="isoform",how="outer")
     
     # create column of sum of read count in each dataset
-    merged_abundance["ont_sum_FL"] = merged_abundance[merged_abundance.filter(like='ont').columns].sum(axis=1)
-    merged_abundance["iso_sum_FL"] = merged_abundance[merged_abundance.filter(like='iso').columns].sum(axis=1)
+    merged_abundance["ONT_sum_FL"] = merged_abundance[merged_abundance.filter(like='ONT').columns].sum(axis=1)
+    merged_abundance["Iso-Seq_sum_FL"] = merged_abundance[merged_abundance.filter(like='Iso-Seq').columns].sum(axis=1)
     
     # replace NA in columns (where unique isoforms in dataset) with 0
     merged_abundance.fillna(0, inplace=True)
@@ -139,7 +140,7 @@ def demux_dataset(args):
     
     # classify dataset based on count data    
     merged_abundance["dataset"] = merged_abundance.apply(
-        lambda row: di.classifier_dataset_bycount(row['ont_sum_FL'], row['iso_sum_FL'],"ONT","Iso-Seq"),
+        lambda row: di.classifier_dataset_bycount(row['ONT_sum_FL'], row['Iso-Seq_sum_FL'],"ONT","Iso-Seq"),
         axis=1)
     
     # write output
