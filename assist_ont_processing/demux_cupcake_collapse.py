@@ -122,7 +122,7 @@ def main():
         args.output = "demux" 
     
     if args.dir is None:
-        args.dir =  os.path.dirname(stat)
+        args.dir =  os.path.dirname(args.read_stat)
         
     # read in files
     print("Reading in files...")

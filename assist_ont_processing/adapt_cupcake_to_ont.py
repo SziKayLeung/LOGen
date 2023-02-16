@@ -155,7 +155,7 @@ def main():
     
     args = parser.parse_args()
     if args.output is None:
-        args.output = "output_sample_id" 
+        args.output = "output" 
     
     if args.dir is None:
         args.dir = args.fasta 
