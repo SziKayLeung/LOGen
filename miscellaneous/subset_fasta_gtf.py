@@ -2,7 +2,7 @@
 
 """
 Author: Szi Kay Leung (S.K.Leung@exeter.ac.uk)
-Aim: Subset gtf based on transcript ID and read output
+Aim: Subset gtf, fasta and bed based on transcript ID and read output
 Functions:
     subset_gtf
 """
@@ -46,6 +46,27 @@ def subset_gtf(retainedID, input_gtf, name, **kwargs):
     rw.writeGTF(subset_gtf, outdir + "/" + outname)
     
     return(subset_gtf)
+    
+    
+"""
+Subset bed based on list of transcripts
+:param retainedID: list of transcripts  
+:param input_bed: path of bed for subsetting
+:param output_dir: output directory
+:param name: string of name to be included in the output
+:writes subsetted bed
+"""       
+def subset_bed(retainedID, input_bed, output_dir, name):  
+  
+    print("Reading bed:", input_bed)
+    bed = pd.read_csv(input_bed, sep = "\t", header = None)
+    bed.index = bed[3].values
+    subset_bed = bed.loc[retainedID]
+    
+    basename = '.'.join(os.path.basename(input_bed).split(".")[:-1])
+    outputfile = output_dir + "/" + name +".bed"
+    print("Writing to:", outputfile)
+    subset_bed.to_csv(outputfile, header = None, index = False, sep = "\t")
 
 
 """
@@ -91,14 +112,16 @@ def subset_fasta(retainedID, input_fasta, name):
         for seq in fasta_sequences:
             if seq.id in retainedID:
                 SeqIO.write([seq], f, "fasta")
-
-
+              
+                
 def main():
     parser = argparse.ArgumentParser(description="Subset fasta and gtf from list of ID")
-    parser.add_argument('input', help='\t\tInput file to subset: gtf or fasta')
-    parser.add_argument('-i', '--id_list', help='\t\tTxt file of list of ID to subset, no rownames and colnames')
+    parser.add_argument('input', help='\t\tInput file to subset: gtf, fasta or bed')
+    parser.add_argument('-i', '--id_list', required=False, help='\t\tTxt file of list of ID to subset, no rownames and colnames')
+    parser.add_argument('-I', '--ID_list', required=False, nargs='+', help='\t\tlist of ID to subset - direct on command line delimited by ,')
     parser.add_argument('--fa', default=False, action="store_true", help='\t\tTo subset fasta input file')
     parser.add_argument('--gtf', default=False, action="store_true", help='\t\tTo subset gtf input file')
+    parser.add_argument('--bed', default=False, action="store_true", help='\t\tTo subset bed input file')
     parser.add_argument('-o','--output', required=False, help='\t\tPrefix for output file; Default: out.')
     parser.add_argument('-d','--dir', required=False, help='\t\tDirectory for output files. Default: directory of input file.')
   
@@ -106,8 +129,8 @@ def main():
     args.basename = '.'.join(os.path.basename(args.input).split(".")[:-1])
     #print(basename)
     
-    if not args.fa and not args.gtf:
-        print("Error: need to include --fa or --gtf to define input format")
+    if not args.fa and not args.gtf and not args.bed:
+        print("Error: need to include --fa or --gtf or --bed to define input format")
         sys.exit()
     
     if args.output is None:
@@ -115,16 +138,24 @@ def main():
     
     if args.dir is None:
         args.dir =  os.path.dirname(args.input)
-    
-    print("Reading in", args.id_list)
-    id_list = pd.read_csv(args.id_list, sep = "\t", header = None)
-    retainedID = list(id_list[0].values)
+        
+    if args.id_list is not None:
+        print("Reading in", args.id_list)
+        id_list = pd.read_csv(args.id_list, sep = "\t", header = None)
+        retainedID = list(id_list[0].values)
+    elif args.ID_list is not None:
+        retainedID = [i.split(",") for i in args.ID_list][0]
+    else:
+        print("Error: need to include --id_list or --ID_list")
     
     if args.fa:
         subset_fasta(retainedID, args.input, args.output)
         
     if args.gtf:
-        subset_gtf(retainedID, args.input, args.output)       
+        subset_gtf(retainedID, args.input, args.output)  
+        
+    if args.bed:
+        subset_bed(retainedID, args.input, args.dir, args.output)
    
     print("All Done")
     
