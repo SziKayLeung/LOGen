@@ -43,7 +43,7 @@ input_FICLE_splicing_results_tGene <- function(TG_anno_dir, gene, filename){
   
   file = paste0(TG_anno_dir,"/", gene,"/Stats/", gene, filename)
   cat("Read in:", file, "\n")
-  file_df = if(!file.size(file) == 0){read.csv(file)}
+  file_df = if(!file.size(file) == 0){read.csv(file)}else{as.data.frame()}
   
   return(file_df)
 }

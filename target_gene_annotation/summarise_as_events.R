@@ -32,8 +32,7 @@ input_FICLE_splicing_results <- function(TG_anno_dir, filenames){
   
   # list the files with specific filename pattern in directory and read if file size != 0
   files <- list.files(path = TG_anno_dir, pattern = filenames, recursive = TRUE, full = T)
-  print(files)
-  tab = lapply(files, function(x)  if(!file.size(x) == 0){read.csv(x)})
+  tab = lapply(files, function(x)  if(!file.size(x) == 0){print(x); read.csv(x)})
   
   # save the files under the names of the gene, which is teh first saved character before "_"
   names(tab) = lapply(list.files(path = TG_anno_dir, pattern = filenames, recursive = TRUE), function(x) word(x, c(1), sep = fixed("/")))
@@ -149,8 +148,9 @@ bin_num_events <- function(num){
 
 # Aim: plot the number of exon skipping events across target genes, further divided by constitutive/alternative status
 # Input:
-  # Gene_class = df: output from annotation of target gene using FICLE <associated_gene> <Isoform> <Matching> <.....> 
+  # Gene_class = list: output from annotation of target gene using FICLE <associated_gene> <Isoform> <Matching> <.....> 
     # each column records the number of transcripts with said alternative splicing event
+    # gene = name of each list
   # class.files = df: SQANTI classification file 
   # TG_anno_dir = str: path of directory containing output of FICLE 
   # ref_gencode = df: output of FICLE reference extract_reference_info.py
@@ -204,19 +204,19 @@ plot_summarised_ES <- function(gene_class, class.files, TG_anno_dir, ref_gencode
     geom_text(aes(label = perc), angle = 90, position = position_stack(vjust = .5)) + 
     labs(x = "", y = "Number of unique exons skipped") + mytheme + 
     scale_fill_manual(name = "Classification", labels = c("Alternative","Constitutive"),
-                      values = c(alpha(label_colour("isoseq"),0.5),label_colour("rnaseq"))) +
+                      values = c(alpha(wes_palette("Darjeeling2")[2],0.5),wes_palette("Darjeeling2")[1])) +
     theme(legend.position = c(0.3,0.85)) + 
     theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1)) 
   
   p2 <- ggplot(n_exon_type, aes(x = associated_gene, y = n, fill = exon_status)) + geom_bar(stat = "identity", position = position_dodge()) +
     mytheme + 
-    scale_fill_manual(name = "Exon Status", values = c(alpha(label_colour("isoseq"),0.5),label_colour("rnaseq"))) +
+    scale_fill_manual(name = "Exon Status", values = c(alpha(wes_palette("Darjeeling2")[2],0.5),wes_palette("Darjeeling2")[1])) +
     theme(legend.position = "bottom") + labs(x = "", y= "Number of exons skipped") +
     theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1))
   
   p3 <- ggplot(exon_type_transcripts, aes(x = associated_gene, y = ratio, fill = exon_status)) + geom_bar(stat = "identity") +
     mytheme + 
-    scale_fill_manual(name = "Exon Status", values = c(alpha(label_colour("isoseq"),0.5),label_colour("rnaseq"))) +
+    scale_fill_manual(name = "Exon Status", values = c(alpha(wes_palette("Darjeeling2")[2],0.5),wes_palette("Darjeeling2")[1])) +
     theme(legend.position = "top") + labs(x = "", y= "number of exons skipped/number of trancripts") +
     theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1))
   
@@ -253,16 +253,22 @@ plot_summarised_IR <- function(merged.class.files, TG_anno_dir, ont_abundance){
   # tally the number of intron retention events per transcripts
   nIR_events <- IR_tab_df %>% group_by(associated_gene, transcript_id) %>% tally() %>% dplyr::rename(IR = n)
   nIR <- nIR_events %>% group_by(associated_gene,IR) %>% tally()
+  
+  cat("Isoforms with more than 3 intron retention events")
+  print(nIR_events %>% filter(IR >= 3))
 
   for(i in 1:nrow(nIR)){nIR[["col_group"]][i] = bin_num_events(nIR[["IR"]][i])}
 
   # keep ONT isoforms only for expression given greater depth
   # need the merged dataframe for the isoform ID, given will be merging later with FICLE output (same ID)
-  ont.class.files <- merged.class.files %>% mutate(IR_status = ifelse(.$isoform %in% IR_yes$transcript_id,"Yes","No")) %>% filter(Dataset != "Iso-Seq")
+  ont.class.files <- merged.class.files %>% mutate(IR_status = ifelse(.$isoform %in% IR_tab_df$transcript_id,"Yes","No")) %>% filter(Dataset != "Iso-Seq")
   
   # merge ont.class.files with expression
-  ont.class.files.FL <- merge(ont.class.files, ont.abundance, by.x = "ONT_isoform", by.y = "annot_transcript_id", all.x = T)
-
+  if("ONT_isoform" %in% colnames(ont.class.files)){
+    ont.class.files.FL <- merge(ont.class.files, ont_abundance, by.x = "ONT_isoform", by.y = "annot_transcript_id", all.x = T)
+  }else{
+    ont.class.files.FL <- merge(ont.class.files, ont_abundance, by.x = "isoform", by.y = "annot_transcript_id", all.x = T)
+  }
   # merge the expression with the number of isoforms with IR events
   IR_exp = merge(ont.class.files.FL, nIR_events, by.x = "isoform", by.y = "transcript_id", all.x = T) %>% mutate(IR = ifelse(IR_status == "No", 0, IR))
   
@@ -271,7 +277,7 @@ plot_summarised_IR <- function(merged.class.files, TG_anno_dir, ont_abundance){
   p1 <- nIR %>% mutate(col_group = factor(col_group, levels = c("0","1","2","3","4","5","6-10","10-15",">15"))) %>% 
     filter(col_group != "0") %>%
     ggplot(., aes(x = associated_gene, y = n, fill = forcats::fct_rev(col_group))) + geom_bar(stat = "identity") + 
-    scale_fill_manual(name = "IR", values = c("#CAC656","#88BAA3","#3B9AB2", alpha(wes_palette("Royal1")[1],0.5))) + 
+    scale_fill_manual(name = "IR", values = c("#CAC656","#88BAA3","#3B9AB2", alpha(wes_palette("Royal1")[1],0.5),alpha(wes_palette("Royal1")[2],0.5))) + 
     mytheme + labs(x = "", y = "Number of Isoforms") + 
     theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1), legend.position = c(0.8,0.8)) + 
     scale_y_continuous(breaks=number_ticks(10))

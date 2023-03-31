@@ -34,7 +34,7 @@
 # Output:
   # df: summary descriptives of the number of transcripts etc for said target gene
 
-summarise_gene_stats <- function(class.files, gene_class, input_cpat, input_noORF,gene){
+summarise_gene_stats <- function(class.files, gene_class, input_cpat, input_noORF, gene){
   
   # filter gene of interest
   gene_class_sqanti = class.files %>% filter(associated_gene == gene)
@@ -47,7 +47,8 @@ summarise_gene_stats <- function(class.files, gene_class, input_cpat, input_noOR
   # generate output dataframe of the desired summary information
   dat = data.frame(
     "Total Number of Transcripts" = c(nrow(gene_class)),
-    "Total Number of Unique Known Transcripts" = c(length(unique(gene_class_sqanti[gene_class_sqanti$associated_transcript != "novel", "associated_transcript"]))),
+    "Total Number of Unique Known Transcripts (ISM, FSM)" = c(length(unique(gene_class_sqanti[gene_class_sqanti$associated_transcript != "novel", "associated_transcript"]))),
+    "Total Number of Known Transcripts" = c(nrow(gene_class_sqanti %>% filter(associated_transcript != "novel"))),
     "Total Number of Novel Transcripts" = c(nrow(gene_class_sqanti %>% filter(associated_transcript == "novel"))),
     "Total Number of Coding Transcripts" = c(nrow(gene_class_sqanti %>% filter(coding_status == "Coding"))),
     "Total Number of Transcripts with canonical splice sites" = nrow(gene_class_sqanti[gene_class_sqanti$all_canonical == "canonical",]),
@@ -56,6 +57,7 @@ summarise_gene_stats <- function(class.files, gene_class, input_cpat, input_noOR
       nrow(gene_class_sqanti[gene_class_sqanti$all_canonical != "canonical" & gene_class_sqanti$coding_status == "Non_Coding",]),
     "Number of Transcripts with ES Events" = c(nrow(gene_class %>% filter(ES != 0))),
     "Number of Transcripts with IR Events" = c(nrow(gene_class %>% filter(IR != 0))),
+    "Number of Transcripts with A5A3 Events" = c(nrow(gene_class %>% filter(A5A3 != 0))),
     "Number of Transcripts with alternative promoter" = c(nrow(gene_class %>% filter(AF != 0)))
   )
   
@@ -64,8 +66,8 @@ summarise_gene_stats <- function(class.files, gene_class, input_cpat, input_noOR
   
   
   count = 1
-  output = data.frame(Features = colnames(Gene_class_df)[3:ncol(Gene_class_df)])
-  for(c in 3:ncol(Gene_class_df)){
+  output = data.frame(Features = colnames(gene_class)[3:ncol(gene_class)])
+  for(c in 3:ncol(gene_class)){
     output[count,2] = sum(gene_class[[c]])
     count = count + 1
   } 
