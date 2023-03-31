@@ -186,24 +186,50 @@ def col_by_dataset(args, inputs, datasetName):
     '''
     
     print("Processing", datasetName)
+    if "," in datasetName:
+        bothdat = inputs['counts'].loc[inputs['counts']["dataset"] == datasetName]
+        bothdat["all_sum_FL"] = bothdat.filter(regex='sum').sum(axis=1)
+        both_a_dict = dict(zip(bothdat["isoform"],bothdat["all_sum_FL"]))
+        bothoutname = args.dir + args.o + "_common_" + str(datasetName.replace(",","_")) + "_counts_coloured.bed12"
+        colour_uscs_tracks(inputs, both_a_dict, bothoutname)
+        
+        ## --- unique isoforms
+        # obtain unique isoforms to dataset
+        # obtain the read counts of these unique isoforms
+        for d in datasetName.split(","):
+            unidat = inputs['counts'].loc[inputs['counts']["dataset"] == datasetName]  
+            unidat_a_dict = dict(zip(unidat["isoform"],unidat[d + "_sum_FL"]))
+            unioutname = args.dir  + args.o + "_unique" + d + "_" + str(datasetName.replace(",","_")) + "_counts_coloured.bed12"
+            colour_uscs_tracks(inputs, unidat_a_dict, unioutname)
     
-    ## --- Both common isoforms
-    # obtain common isoforms that are present in both datasets
-    # create an abundance dictionary, with read counts of these common isoforms from dataset of interest
-    # subset bed file using abundance dictionary (isoforms of interest as key) and colour
-    bothdat = inputs['counts'].loc[inputs['counts']["dataset"] == "Both"]
-    both_a_dict = dict(zip(bothdat["isoform"],bothdat[datasetName + "_sum_FL"]))
-    bothoutname = args.dir + args.o + "_both" + str(datasetName) + "counts_coloured.bed12"
-    colour_uscs_tracks(inputs, both_a_dict, bothoutname)
-    
-    ## --- unique isoforms
-    # obtain unique isoforms to dataset
-    # obtain the read counts of these unique isoforms
-    unidat = inputs['counts'].loc[inputs['counts']["dataset"] == datasetName]  
-    unidat_a_dict = dict(zip(unidat["isoform"],unidat[datasetName + "_sum_FL"]))
-    unioutname = args.dir  + args.o + "_unique" + str(datasetName) + "counts_coloured.bed12"
-    colour_uscs_tracks(inputs, unidat_a_dict, unioutname)
+    elif datasetName == "ONT" or datasetName == "PacBio":
+        
+        ## --- Both common isoforms
+        # obtain common isoforms that are present in both datasets
+        # create an abundance dictionary, with read counts of these common isoforms from dataset of interest
+        # subset bed file using abundance dictionary (isoforms of interest as key) and colour
+        bothdat = inputs['counts'].loc[inputs['counts']["dataset"] == "Both"]
+        both_a_dict = dict(zip(bothdat["isoform"],bothdat[datasetName + "_sum_FL"]))
+        bothoutname = args.dir + args.o + "_both" + str(datasetName) + "counts_coloured.bed12"
+        colour_uscs_tracks(inputs, both_a_dict, bothoutname)
 
+        ## --- unique isoforms
+        # obtain unique isoforms to dataset
+        # obtain the read counts of these unique isoforms
+        unidat = inputs['counts'].loc[inputs['counts']["dataset"] == datasetName]  
+        unidat_a_dict = dict(zip(unidat["isoform"],unidat[datasetName + "_sum_FL"]))
+        unioutname = args.dir  + args.o + "_unique" + str(datasetName) + "counts_coloured.bed12"
+        colour_uscs_tracks(inputs, unidat_a_dict, unioutname)
+    
+    else:
+        ## --- unique isoforms
+        # obtain unique isoforms to dataset
+        # obtain the read counts of these unique isoforms
+        unidat = inputs['counts'].loc[inputs['counts']["dataset"] == datasetName]  
+        unidat_a_dict = dict(zip(unidat["isoform"],unidat[datasetName + "_sum_FL"]))
+        unioutname = args.dir  + args.o + "_unique_" + str(datasetName) + "_counts_coloured.bed12"
+        colour_uscs_tracks(inputs, unidat_a_dict, unioutname)
+        
 
 """
 generate one coloured bed file (if abundance file contains 'dataset' column)
@@ -228,7 +254,7 @@ def col_by_all(args, inputs):
     
     # create abundance dictionary and colour
     abundance_dict = dict(zip(inputs['counts']["isoform"],inputs['counts']["all_sum_FL"]))
-    concatname = args.dir + args.o + "_concat_counts_coloured.inputs.bed12"
+    concatname = args.dir + args.o + "_concat_counts_coloured.bed12"
     colour_uscs_tracks(inputs, abundance_dict, concatname)
     
     
@@ -269,7 +295,7 @@ def main():
         
         # generate 2 bed files for each dataset 
         for datasetName in set(inputs['counts']["dataset"].values):
-            if datasetName != "Both":
+            if datasetName != "Both" and datasetName != "All":
                 col_by_dataset(args, inputs, datasetName)
     
     else:
