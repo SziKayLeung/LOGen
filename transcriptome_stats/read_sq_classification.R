@@ -7,15 +7,27 @@
 ##
 ## ---------- Functions -----------------
 ## 
-## gene_summary_info
-## corr_exon_length_num
+## annotate_class_binary
+## SQANTI_class_preparation
+## SQANTI_gene_preparation
+## SQANTI_remove_3prime
+## targeted_remove_3ISM
+## subset_class_phenotype
+## subset_class_by_sample
+## subset_class_by_targets
+## quantify_class_abundance
+## filter_class_by_counts 
 ##   
 ## ---------- Notes -----------------
 ## 
-## Correlation reported is only of multi-exonic isoforms (mono-exonic isoforms are removed)
-## Pre-requisite: 
-## 1. SQANTI classification file has a tabulated "FL" column for each isoform with sum reads across each sample
-## 2. function: draw_density.R from aesthetics_basics_plots.R
+## Some functions borrowed from SQANTI (SQANTI_report.R)
+## ----------------------------------
+
+
+## ---------- Packages -----------------
+
+suppressMessages(library("dplyr"))
+suppressMessages(library("stringr"))
 
 
 ## ------------------- annotate_class_binary
@@ -58,13 +70,38 @@ annotate_class_binary  <- function(class.files){
     # create ISOSEQ_TPM and Log_ISOSEQ_TPM columns
 # Output: df 
 
-SQANTI_class_preparation <- function(path.class.file,standard){
+SQANTI_class_preparation <- function(class.file,standard){
   
   cat("Loading classification file:",class.file,"\n")
   data.class = read.table(class.file, header=T, as.is=T, sep="\t")
   rownames(data.class) <- data.class$isoform
   
-  xaxislevelsF1 <- c("full-splice_match","incomplete-splice_match","novel_in_catalog","novel_not_in_catalog", "genic","antisense","fusion","intergenic","genic_intron")
+  # SQANTI versions (v5.0) change column names for dist_to_cage_peak and within_cage_peak 
+  # change columns back for consistency
+  if("within_CAGE_peak" %in% colnames(data.class)){
+    cat("Processing SQANTI classification file generated from new version (5.0) onwards\n")
+    data.class <- data.class %>% dplyr::rename(within_cage_peak = within_CAGE_peak,
+                                        dist_to_cage_peak = dist_to_CAGE_peak,
+                                        dist_to_polya_site = dist_to_polyA_site)
+    
+    cat("Removing artifacts\n")
+    data.class <- data.class %>% filter(filter_result == "Isoform")
+    
+    data.class$structural_category[data.class$structural_category == "Genic_Genomic"] <- "Genic\nGenomic"
+  }
+  
+  if("FSM" %in% unique(data.class$structural_category)){
+    xaxislevelsF1 <- c("FSM","ISM","NIC","NNC", "genic","antisense","fusion","intergenic","genic_intron")
+  }else{
+    xaxislevelsF1 <- c("full-splice_match","incomplete-splice_match","novel_in_catalog","novel_not_in_catalog", "genic","antisense","fusion","intergenic","genic_intron")
+  }
+  
+  
+  if("dataset" %in% colnames(data.class)){
+    data.class <- data.class %>% dplyr::rename(Dataset = dataset)
+  }
+  
+
   xaxislabelsF1 <- c("FSM", "ISM", "NIC", "NNC", "Genic_Genomic",  "Antisense", "Fusion","Intergenic", "Genic_Intron")
   
   legendLabelF1 <- levels(as.factor(data.class$coding))
@@ -79,7 +116,6 @@ SQANTI_class_preparation <- function(path.class.file,standard){
   data.ISM <- subset(data.class, (structural_category=="ISM" & exons>1))
   
   # Label Empty blanks in associated_gene column as "Novel Genes_PB_<isoform_ID>"
-  data.class[data.class$associated_gene == "",]
   data.class$associated_gene[data.class$associated_gene == ""] <- paste0("novelGene_PB.", word(data.class$isoform[data.class$associated_gene == ""],c(2), sep = fixed ('.')))
   
   # Create a new attribute called "novelGene"
@@ -211,6 +247,20 @@ targeted_remove_3ISM <- function(TargetGenelist, class.files){
 
 ## ------------------- subset_class_phenotype
 
+# Aim: subset classification file based on phenotype 
+# Pre-requisites:
+  # class.files to have FL count columns for samples 
+  # phenotype file to have the sample names (<sample>) under "Sample.ID" column
+  # phenotype file to have the condition to subset (under "Phenotype" column)
+# Assumptions:
+  # 0 FL reads across all samples in condition => not detected in condition
+# Input:
+  # class.files = df: SQANTI classification file after processing SQANTI_class_preparation()
+  # phenotype_file = df: read in phenotype file; <Sample.ID; condition>
+  # condition = str of condition to subset (i.e. AD)
+# Output:
+  # class.files of the isoforms detected in the samples of interest 
+
 subset_class_phenotype <- function(class.files, phenotype_file, condition){
   
   class.files <- annotate_class_binary(class.files) 
@@ -225,4 +275,144 @@ subset_class_phenotype <- function(class.files, phenotype_file, condition){
     filter(TotalFL > 0) %>% mutate(Dataset = condition) 
   
   return(class.files)
+}
+
+
+## ------------------- subset_class_by_sample
+
+# Aim: subset classification file by sample of interest; only include isoforms detected in sample 
+# filter isoforms that have >0 reads for that sample
+# Pre-requisites:
+  # class.files to have FL count columns for samples
+# Input:
+  # class.files = df: SQANTI classification file after processing SQANTI_class_preparation()
+  # sample = str: sample name that matches the column name of class.files
+# Output:
+  # class.files of the isoforms detected in the sample of interest 
+
+subset_class_by_sample <- function(class.files, sample){
+  
+  # grep the column name that matches with the sample
+  col <- colnames(class.files)[[grep(sample, colnames(class.files))]]
+  
+  # filter the sample abundance > 0 reads for that specific transcript
+  # filter_at(vars(1)) = column 1 = sample abundance column
+  class.files <- class.files %>% select(all_of(col), associated_gene, isoform) %>% filter_at(vars(1), any_vars(. > 0))
+  
+  return(class.files)
+}
+
+
+## ------------------- subset_class_by_targets
+
+# Aim: subset classification file by only including isoforms associated with target genes
+# filter isoforms associated with exact match to target genes
+# Input: 
+  # class.files = df: SQANTI classification file after processing SQANTI_class_preparation()
+  # TargetGenes = list: target genes for subsetting (capitals do not make any difference on subset)
+# Output:
+  # class.files of the isoforms associated with target genes
+
+subset_class_by_targets <- function(class.files, TargetGenes){
+  
+  ## grep target genes in fusion isoforms
+  # subset fusion isoforms
+  fusion_isoforms <- class.files %>% filter(structural_category == "fusion")
+  
+  # generate a list of target fusion isoforms to append
+  lst = list()
+  
+  # loop through each target gene and append the isoform id
+  lst <- append(sapply(TargetGenes, function(x) fusion_isoforms[grepl(x, fusion_isoforms$associated_gene),"isoform"]),lst)
+  
+  # subset the fusion target isoforms of interest
+  target_fusion_isoforms <- fusion_isoforms[fusion_isoforms$isoform %in% array(unlist(lst)),]
+  
+  # subset all other non-fusion isoforms, where associated_gene is exact match
+  # capitalise to ensure no inconsistency
+  targeted.class.files <- class.files %>% filter(toupper(associated_gene) %in% toupper(TargetGenes))
+  
+  # rbind both classes of isoforms (non-fusion and fusion)
+  targeted.class.files <- rbind(targeted.class.files, target_fusion_isoforms)
+  
+  return(targeted.class.files)
+}
+
+
+## ------------------- quantify_class_abundance
+
+# Aim: merge the classification file with abundance (if --fl_count not turned on in SQANTI)
+# obtain sample level counts for each isoform
+# Pre-requisite:
+  # isoform column in class.files = row.names in abundance.files
+# Input: 
+  # class.files = df: SQANTI classification file after processing SQANTI_class_preparation()
+  # abundance.files 
+  # sum = <"yes","no"> : if sum then add additional columns of the number of reads and samples detected for each isoform
+# Output:
+  # class.files with addtional columns of the counts 
+# Notes:
+  # all the isoforms in the class.files should be retained 
+  # NA in count columns suggest no abundance information for isoform (mismatched abundance and sqanti file?)
+  # whereas unique isoforms in the abundance files are discarded (from upstream filtering)
+
+quantify_class_abundance <- function(class.files, abundance.files){
+  
+  # generate two columns recording the 
+  # number of samples with reads, and the 
+  # total number of reads across all samples
+  if("dataset" %in% colnames(abundance.files)){
+    abundance.files.counts <- abundance.files %>% 
+      # remove columns with sum and the dataset to avoid double counting
+      select(-contains("sum_FL"),-dataset) 
+  }else{
+    abundance.files.counts <- abundance.files
+  }
+  
+  #head(abundance.files.counts)
+  abundance.files.counts <- abundance.files.counts %>% filter(rownames(.) != "0") %>% 
+    mutate(nsamples = rowSums(.!=0), nreads = rowSums(.)) %>% 
+    select(nsamples, nreads)
+
+  # cbind additional two columns
+  abundance.files <- abundance.files %>% tibble::rownames_to_column("isoform") %>% filter(isoform != 0)
+  abundance.files <- cbind(abundance.files, abundance.files.counts)
+  
+  # merge class.files and abundance.files
+  class.files <- merge(class.files, abundance.files, by = "isoform", all.x = TRUE)
+  
+  return(class.files)
+}
+
+
+## ------------------- filter_class_by_counts
+
+# Aim: filter SQANTI classification by read counts
+# Pre-requisite:
+  # SQANTI classification file have cols: <nreads>, <nsamples>, <dataset>
+# Input: 
+  # class.files = df: SQANTI classification file after processing SQANTI_class_preparation()
+  # nread_threshold = number: the minimum number of reads 
+  # nsample_threshold = number: the minimum number of samples
+# Output:
+  # filtered class.files 
+# Notes:
+  # Isoforms that are detected in "Both" or "All" datasets are retained and not filtered regardless of read counts and samples
+
+filter_class_by_counts <- function(class.files, nread_threshold, nsample_threshold){
+  
+  cat("Filtering isoforms with less than", nread_threshold, "reads, across", nsample_threshold,"samples\n")
+  
+  if("dataset" %in% colnames(class.files)){
+    cat("Keeping isoforms in both or all datasets\n")
+    both.class.files <- class.files %>% filter(dataset %in% c("Both","All"))
+    unique.class.files <- class.files %>% filter(!dataset %in% c("Both","All")) %>% filter(nreads >= nread_threshold & nsamples > nsample_threshold)
+    filtered.class.files <- rbind(both.class.files, unique.class.files)
+  }else{
+    filtered.class.files <- class.files %>% filter(nreads >= nread_threshold & nsamples > nsample_threshold)
+  }
+  
+  cat("Removed", nrow(class.files) - nrow(filtered.class.files),"isoforms\n")
+  
+  return(filtered.class.files)
 }
