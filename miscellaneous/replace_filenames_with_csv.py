@@ -22,6 +22,29 @@ import argparse
 import sys
 import shutil
 
+def rename_func(args, indexdict, fullname, filename):
+        
+    if args.ext:
+        basename = filename.split("." + args.ext,)[0]
+        extension = "." + args.ext
+    else:
+        basename, extension = os.path.splitext(filename)
+    
+    newname = indexdict[basename] + extension
+    # if argument is to copy the files and then replace the filenames    
+    if args.copy:
+        if not os.path.exists(args.dir):
+            os.makedirs(args.dir)
+            
+        if not os.path.exists(args.dir + "/" + newname):
+            shutil.copy(fullname, os.path.join(args.dir, newname))
+            print("File copied successfully.")
+            print("Replacing name:" + filename + " with " + newname)
+    else:
+        print("Replacing name directly:" + filename + " with " + newname)
+        os.rename(fullname, os.path.join(root, newname))
+  
+
 
 """
 rename filenames with csv file
@@ -46,29 +69,29 @@ def rename_file(args):
     for root, dirs, files in os.walk(args.input):
         for filename in files:
             fullname = os.path.join(root, filename)
-            basename, extension = os.path.splitext(filename)
+            
+            if args.ext:
+                basename = filename.split("." + args.ext,)[0]
+            else:
+                basename, extension = os.path.splitext(filename)
+                
             # if the basename matches the dictionary key
             if basename in indexdict.keys():
-                newname = indexdict[basename] + extension
-                
-                # if argument is to copy the files and then replace the filenames    
-                if args.copy:
-                    if not os.path.exists(args.dir):
-                        os.makedirs(args.dir)
-                        
-                    if not os.path.exists(args.dir + "/" + newname):
-                        shutil.copy(fullname, os.path.join(args.dir, newname))
-                        print("File copied successfully.")
-                        print("Replacing name:" + filename + " with " + newname)
+                if args.ext:
+                    if fullname.endswith(args.ext):
+                        rename_func(args, indexdict, fullname, filename)
+                    else:
+                        pass
                 else:
-                    print("Replacing name directly:" + filename + " with " + newname)
-                    os.rename(fullname, os.path.join(root, newname))
+                    rename_func(args, indexdict, fullname, filename)
+                    
    
                 
 def main():
     parser = argparse.ArgumentParser(description="Replace multiple file names in a directory using reference csv file")
     parser.add_argument('-i','--input',help='\t\tInput directory of files to replace')
     parser.add_argument('-f','--file',help='\t\tcsv reference file <old_name>,<new_name>')
+    parser.add_argument('-e','--ext',required=False, help='\t\tfilename extension to match and extract')
     parser.add_argument('-c','--copy',default=False, action="store_true", help='\t\tto copy and replace files')
     parser.add_argument('-d','--dir',required=False, help='\t\tnew directory to copy and replace files.')
   
