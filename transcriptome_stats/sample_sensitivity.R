@@ -30,15 +30,15 @@ suppressMessages(library(ggplot2))
   # classification file generated from SQANTI
 # Output:
   # p1 = the proportion of isoforms detected across samples
-  # p2 = the number of samples against median read count
+  # p2 = the number of samples against sum read count
 
 no_of_isoforms_sample <- function(class){
   
-  # median_FL: median full-length read counts for each isoform (row)
+  # sum_FL: sum full-length read counts for each isoform (row)
   # num_samples: the number of samples where 0 read counts for isoform
   # across each row (i.e isoform, count the number of occurences where reads are != 0)
   dat <- class %>% dplyr::select(starts_with("FL.")) %>% 
-    mutate(median_FL = apply(.,1, function(x) median(x)), 
+    mutate(sum_FL = apply(.,1, function(x) sum(x)), 
            num_samples = apply(.,1, function(x) length(x[which(x != "0")]))) 
   
   table(dat$num_samples)
@@ -47,8 +47,8 @@ no_of_isoforms_sample <- function(class){
   p1 <- ggplot(dat, aes(x = as.factor(num_samples))) + geom_bar(aes(y = (..count..)/sum(..count..))) + 
     scale_y_continuous(labels = perc_lab)  + mytheme + labs(x = "Number of Samples", y = "Isoforms (%)")
   
-  p2 <- ggplot(dat, aes(x = as.factor(num_samples), y = log(median_FL))) + geom_boxplot() + 
-    mytheme + labs(x = "Number of Samples", y = "FL Read Count(Log10)")
+  p2 <- ggplot(dat, aes(x = as.factor(num_samples), y = log(sum_FL))) + geom_boxplot() + 
+    mytheme + labs(x = "Number of Samples", y = "Sum FL Read Count (Log10)")
   
   return(list(p1,p2))
 }

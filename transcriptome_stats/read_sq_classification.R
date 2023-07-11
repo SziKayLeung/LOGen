@@ -84,16 +84,24 @@ SQANTI_class_preparation <- function(class.file,standard){
                                         dist_to_cage_peak = dist_to_CAGE_peak,
                                         dist_to_polya_site = dist_to_polyA_site)
     
-    cat("Removing artifacts\n")
-    data.class <- data.class %>% filter(filter_result == "Isoform")
+    if(standard != "all"){
+      cat("Removing artifacts\n")
+      data.class <- data.class %>% filter(filter_result == "Isoform")
+    }
     
     data.class$structural_category[data.class$structural_category == "Genic_Genomic"] <- "Genic\nGenomic"
   }
   
   if("FSM" %in% unique(data.class$structural_category)){
-    xaxislevelsF1 <- c("FSM","ISM","NIC","NNC", "genic","antisense","fusion","intergenic","genic_intron")
+    if("Genic_Genomic" %in% unique(data.class$structural_category)){
+      xaxislevelsF1 <- c("FSM","ISM","NIC","NNC", "Genic_Genomic","Antisense","Fusion","Intergenic")
+      xaxislabelsF1 <- c("FSM", "ISM", "NIC", "NNC", "Genic_Genomic",  "Antisense", "Fusion","Intergenic")
+    }else{
+      xaxislevelsF1 <- c("FSM","ISM","NIC","NNC", "genic","antisense","fusion","intergenic","genic_intron")
+    }
   }else{
     xaxislevelsF1 <- c("full-splice_match","incomplete-splice_match","novel_in_catalog","novel_not_in_catalog", "genic","antisense","fusion","intergenic","genic_intron")
+    xaxislabelsF1 <- c("FSM", "ISM", "NIC", "NNC", "Genic_Genomic",  "Antisense", "Fusion","Intergenic", "Genic_Intron")
   }
   
   
@@ -101,8 +109,6 @@ SQANTI_class_preparation <- function(class.file,standard){
     data.class <- data.class %>% dplyr::rename(Dataset = dataset)
   }
   
-
-  xaxislabelsF1 <- c("FSM", "ISM", "NIC", "NNC", "Genic_Genomic",  "Antisense", "Fusion","Intergenic", "Genic_Intron")
   
   legendLabelF1 <- levels(as.factor(data.class$coding))
   
@@ -188,7 +194,8 @@ SQANTI_gene_preparation <- function(data_class_output_file){
     isoPerGene = aggregate(data_class_output_file$isoform,
                            by = list("associatedGene" = data_class_output_file$associated_gene,
                                      "novelGene" = data_class_output_file$novelGene,
-                                     "FSM_class" = data_class_output_file$FSM_class),
+                                     "FSM_class" = data_class_output_file$FSM_class,
+                                     "structural_category" = data_class_output_file$structural_category),
                            length)
   }
   # assign the last column with the colname "nIso" (number of isoforms)
@@ -406,13 +413,23 @@ filter_class_by_counts <- function(class.files, nread_threshold, nsample_thresho
   if("dataset" %in% colnames(class.files)){
     cat("Keeping isoforms in both or all datasets\n")
     both.class.files <- class.files %>% filter(dataset %in% c("Both","All"))
-    unique.class.files <- class.files %>% filter(!dataset %in% c("Both","All")) %>% filter(nreads >= nread_threshold & nsamples > nsample_threshold)
+    unique.class.files <- class.files %>% filter(!dataset %in% c("Both","All")) %>% filter(nreads >= nread_threshold & nsamples >= nsample_threshold)
     filtered.class.files <- rbind(both.class.files, unique.class.files)
   }else{
-    filtered.class.files <- class.files %>% filter(nreads >= nread_threshold & nsamples > nsample_threshold)
+    filtered.class.files <- class.files %>% filter(nreads >= nread_threshold & nsamples >= nsample_threshold)
   }
   
   cat("Removed", nrow(class.files) - nrow(filtered.class.files),"isoforms\n")
   
   return(filtered.class.files)
+}
+
+plot_sqanti_filtered_reasons <- function(reason.files){
+  
+  p <- reason.files %>% group_by(structural_category, reasons) %>% tally() %>%
+    ggplot(., aes(x = reasons, y = n, fill = structural_category)) + geom_bar(stat = "identity") +
+    theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1)) +
+    labs(x = "Reasons Filtered", y = "Number of Isoforms") 
+  
+  return(p)
 }
