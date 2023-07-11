@@ -53,7 +53,8 @@ def list_named_fasta(args):
     
     # store name into fastafiles list
     fasta_files = []
-    for file in glob.glob(args.fasta + "/*.fa"):
+    for file in glob.glob(args.fasta + "/" + "*" + args.index + "*"):
+        print(file)
         # if argument of selected samples is specified
         if args.samples is not None:
             for sample in args.samples:
@@ -150,6 +151,7 @@ def main():
     parser.add_argument('fasta', help='\t\tDirectory of fasta files.')
     parser.add_argument('-s','--samples', nargs='+', required=False, help='\t\tSpecified samples to include. Default: all files with .fa/.fasta')
     parser.add_argument('--batch', default=False, action="store_true", help='\t\tInclude batch name into output files')
+    parser.add_argument('-i','--index', required=False, default = ".fa", help='\t\tSpecific string in fasta files to capture in input directory')
     parser.add_argument('-o','--output', required=False, help='\t\tPrefix for output sample file documenting reads.')
     parser.add_argument('-d','--dir', required=False, help='\t\tDirectory for output files. Default: Directory of fasta files.')
     
