@@ -1,5 +1,23 @@
 ## ---------- Plot gene and transcript expression -----------------
 
+time_case_boxplot <- function(normalised_counts, transcript){
+  
+  df <- normalised_counts %>% filter(isoform == transcript)
+  df$time <- as.factor(df$time)
+  
+  p <- ggplot(df, aes(x = group, y = normalised_counts)) + geom_boxplot() +
+    geom_point(position="jitter",aes(color = time), size = 3) +
+    theme_bw() +
+    labs(x = "Genotype", y = "Normalised counts",
+         title = paste0(unique(df$associated_gene),": ", transcript),
+         subtitle = df$associated_transcript) +
+    scale_colour_manual(name = "Age (months)",
+                        values = c(wes_palette("Darjeeling2")[[5]], wes_palette("Zissou1")[[1]],
+                                   wes_palette("Zissou1")[[3]],wes_palette("Zissou1")[[5]]))
+  
+  return(p)
+}
+
 # plot transcript expression of all samples as box plot by phenotype
 # top 10 most abundantly expressed transcript 
 # or all transcripts of all samples 
@@ -40,8 +58,6 @@ plot_trans_exp_individual <- function(transcript, Norm_transcounts){
   print(transcript)
   dat <- Norm_transcounts %>% filter(isoform == transcript)
   gene <- dat$associated_gene[1]
-  group1 <- unique(dat$group)[1]
-  group2 <- unique(dat$group)[2]
   
   p <- ggplot(dat, aes(x = group, y = value, fill = group)) + geom_boxplot() + 
     geom_jitter(color="black", size=0.4, alpha=0.9) +
@@ -53,18 +69,38 @@ plot_trans_exp_individual <- function(transcript, Norm_transcounts){
   return(p)
 }
 
-plot_trans_exp_individual_overtime <- function(transcript, Norm_transcounts){
+plot_trans_exp_individual_overtime <- function(transcript, Norm_transcounts,type=transcript){
   print(transcript)
   dat <- Norm_transcounts %>% filter(isoform == transcript)
-  gene <- dat$associated_gene[1]
-  group1 <- unique(dat$group)[1]
-  group2 <- unique(dat$group)[2]
+  dat$time <- as.factor(dat$time)
   
-  p <- ggplot(dat, aes(x = time, y = value, colour = group)) + geom_point(size = 3) +
-    labs(x = "Age (months)", y = "Isoform Expression", 
-         title = paste0(gene, ":", "\n",transcript,"")) + mytheme + 
+  groups = levels(Norm_transcounts$group)
+  if("Control" %in% groups){
+    dat <- dat %>% mutate(group = factor(group, levels = c("Control",groups[!groups %in% "Control"])))
+  }else{
+    dat <- dat %>% mutate(group = factor(group, levels = c("CONTROL",groups[!groups %in% "CONTROL"]))) 
+  }
+  
+  group1 <- levels(dat$group)[[1]]
+  group2 <- levels(dat$group)[[2]]
+  
+  # title
+  gene <- dat$associated_gene[1]
+  associated_transcript <- dat$associated_transcript[1]
+  if(type == "transcript"){
+    title = paste0(associated_transcript, " (", transcript,")")
+    subtitle = gene
+  }else{
+    title = gene
+    subtitle = NULL
+  }
+
+  p <- ggplot(dat, aes(x = time, y = normalised_counts, colour = group)) + geom_point(size = 3) +
+    labs(x = "Age (months)", y = "Normalised counts", 
+         title = title, subtitle = subtitle) + mytheme + 
     scale_colour_manual(values = c(label_colour(group1),label_colour(group2))) + 
-    theme(legend.position = "none")
+    stat_summary(data=dat, aes(x=time, y=normalised_counts, group=group), fun ="mean", geom="line", linetype = "dotted") +
+    theme(legend.position = "none") 
   
   return(p)
 }
@@ -85,94 +121,72 @@ plot_all_gene_exp <- function(){
 }
 
 
-# linear regression for significant changes over time
-#for(isoform in unique(df$isoform)){
-#  cat("Processing",isoform,"\n")
-#  df1 <- df[df$isoform == isoform & df$group == "WT",]
-#  df1_WTmean <- df1 %>% group_by(time) %>% summarise(mean_exp = mean(value))
-#  df1_TG <- df[df$isoform == isoform & df$group == "TG",]
-#  df2 <- merge(df1_TG, df1_WTmean, by = "time") %>% mutate(diff = abs(value - mean_exp))
-#print(summary(lm(diff~0 + time,df2)))
-#}
-
-#df_WT <-  df[df$group == "WT",]
-#df_WTmean <- df %>% group_by(time, isoform) %>% summarise(mean_exp = mean(value),  .groups = 'drop')
-#df_TG <- df[df$group == "TG",]
-#df2 <- merge(df_TG, df_WTmean, by = c("time","isoform")) %>% mutate(diff = abs(value - mean_exp))
-
-#p1 <- ggplot(df2, aes(x = time, y = diff, colour = isoform)) + geom_point() +
-#  stat_summary(data=df, aes(x=time, y=value, group=Isoform), fun ="mean", geom="line", linetype = "dotted") +
-#  scale_y_continuous(trans = 'log10') + mytheme + labs(x = "Age (months)", y = "Fold Change of Isoform Expression \n (TG - WT)") + theme(legend.position = "right")
-
-plot_transexp_overtime <- function(InputGene, Norm_transcounts, name, type, dataset, difftrans){
+subsetNormCounts <- function(inputGene, normCounts,design="time_series",show="all",rank=5, isoSpecific=NULL){
   
-  df <-  Norm_transcounts  %>% filter(associated_gene == InputGene) 
-  plot_title <- paste0(name," ", InputGene)
-  
-  if(type == "case_control"){
-    # facet labels 
-    df2 <- df
-    levels(df2$group)[levels(df2$group) %in% c("Control","CONTROL")] <- label_group("Control")
-    levels(df2$group)[levels(df2$group) %in% c("Case","CASE")]   <- label_group("Case")
-    
-    p <- ggplot(df2, aes(x = time, y = value, colour = Isoform)) + geom_point() + 
-      facet_grid(~group, scales = "free", space = "free") +
-      stat_summary(data=df2, aes(x=time, y=value, group=Isoform), fun ="mean", geom="line", linetype = "dotted") +
-      mytheme + labs(x = "Age (months)", y = "Normalised Counts",title = plot_title) +
-      theme(strip.background = element_blank(), legend.position = "bottom",plot.title = element_text(hjust = 0.5, size = 16,face = "italic"),panel.spacing = unit(2, "lines")) +
-      guides(colour=guide_legend(ncol=3,bycol=TRUE))
-    
-  }else if(type == "time_series_sig"){
+  df <-  normCounts  %>% filter(associated_gene == inputGene) 
+
+  if(design=="time_series"){
+    df$time <- as.factor(df$time)
+  }else if(design != "multiple_case_control"){
     levels(df$group)[levels(df$group) %in% c("Control","CONTROL")] <- label_group("Control")
     levels(df$group)[levels(df$group) %in% c("Case","CASE")]   <- label_group("Case")
     df <- df %>% mutate(group = factor(group, levels = c(label_group("Control"),label_group("Case"))))
+  }
+
+  if(show == "toprank"){
+    cat("Keeping only the top-ranked", rank, "most-expressed isoforms across entire dataset\n")
+    topranked_expression <- df %>% group_by(isoform) %>% tally(normalised_counts) %>% arrange(-n)
+    keepiso <- as.character(topranked_expression$isoform[1:rank])
     
-    if(InputGene %in% c("Gfap","C4b","Ctsd","Gatm","H2-D1","Padi2","Cd34","Ubqln1")){
-      if(dataset == "isoseq"){
-        sigiso = c(difftrans[difftrans$associated_gene == InputGene, "isoform"])$isoform
-        df = df %>% mutate(sig = ifelse(isoform %in% sigiso,Isoform,"NA")) %>% filter(sig != "NA")
-      }else{
-        sigisoiso = c(difftrans[difftrans$associated_gene == InputGene, "isoform"])$isoform
-        df = df %>% mutate(Isoform = ifelse(isoform %in% sigisoiso,Isoform,"RNA-specific"))
-      }
-    }else{
-      difftrans = difftrans %>% filter(associated_gene == InputGene) %>% arrange(`p-value`)
-      # top 5 differentially-ranked isoforms 
-      df <- df %>% filter(isoform %in% difftrans$isoform[1:3])
-      
+    if(!is.null(isoSpecific)){
+      cat("Keeping also isoforms", isoSpecific, "\n")
+      keepiso <- c(keepiso, isoSpecific)
     }
     
-    
-    if(InputGene == "Gfap" & dataset == "rnaseq"){
-      df <- df %>% mutate(Isoform = factor(Isoform, levels = c("PB.2972.13_NIC","PB.2972.16_FSM","PB.2972.36_FSM","RNA-specific")))
-      colours = c("#F8766D","#00BFC4","#C77CFF",alpha("grey",0.6))
-    } else if(InputGene == "Gfap"){
-      colours = c("#F8766D","#7CAE00","#00BFC4","#C77CFF",alpha("grey",0.6))
-    } else if(InputGene == "Ubqln1"){
-      colours = c("#F8766D","#00BFC4",alpha("grey",0.6))
-    }else{
-      colours = c("#F8766D",alpha("grey",0.6))
+    df <- df %>% filter(isoform %in% keepiso) 
+  
+  }else if(show == "specific"){
+    df <- df %>% filter(isoform %in% isoSpecific) 
+  }
+  
+  return(df)
+}
+
+
+plot_transexp_overtime <- function(inputGene, normCounts,design="time_series",show="all",rank=5, isoSpecific=NULL, plotTitle=NULL,setorder=NULL){
+  
+  df <- subsetNormCounts(inputGene,normCounts,design=design,show=show,rank=rank,isoSpecific=isoSpecific)
+  
+  if(!is.null(setorder)){
+    df$group <- factor(df$group, levels = setorder,
+                       labels = c(label_group(setorder[1]),label_group(setorder[2])))
     }
+  
+  if(design != "time_series"){
+  
+    p <- ggplot(df, aes(x = group, y = normalised_counts, colour = isoform)) + geom_boxplot() + 
+      geom_point(position = position_jitterdodge()) +
+      mytheme + labs(x = " ", y = "Normalised Counts", title = inputGene) +
+      theme(strip.background = element_blank(), legend.position = "bottom",
+            plot.title = element_text(hjust = 0.5, size = 16,face = "italic"),panel.spacing = unit(2, "lines"),
+            text=element_text(size=16)) +
+      guides(colour=guide_legend(ncol=3,bycol=TRUE))
     
-    if(nrow(df) != 0){
-      p <- ggplot(df, aes(x = time, y = value, colour = Isoform)) + geom_point(size = 3) + 
-        facet_grid(~group,scales = "free", space = "free") +
-        stat_summary(data=df, aes(x=time, y=value, group=Isoform), fun ="mean", geom="line", linetype = "dotted", size = 1.5) +
-        mytheme + labs(x = "Age (months)", y = "Normalised counts",title = plot_title) +
-        theme(strip.background = element_blank(), plot.title = element_text(hjust = 0.5, size = 16,face = "italic"),
-              panel.spacing = unit(2, "lines"),
-              legend.position = c(0.4,0.8)) 
-      
-      if(dataset == "isoseq"){
-        p <- p + scale_colour_discrete(name = "Isoform")
-      }else{
-        p <- p + scale_colour_manual(values = colours) + theme(legend.position = "none")
-      }
-      
-    }else{
-      p <- ggplot() + theme_void()
-    }
+  }else if(design == "time_series"){
     
+    p <- ggplot(df, aes(x = time, y = normalised_counts, colour = isoform)) + geom_point(size = 3) + 
+      facet_grid(~group,scales = "free", space = "free") +
+      stat_summary(data=df, aes(x=time, y=normalised_counts, group=isoform), fun ="mean", geom="line", linetype = "dotted", size = 1.5) +
+      mytheme + labs(x = "Age (months)", y = "Normalised counts", title = inputGene) +
+      theme(strip.background = element_blank(), 
+            text=element_text(size=16),
+            plot.title = element_text(hjust = 0.5, size = 16,face = "italic",),
+            panel.spacing = unit(1, "lines"),
+            legend.position = c(0.4,0.8))
+  }
+  
+  if(show == "specific" & length(isoSpecific) == 1){
+    p <- p + labs(title = paste0(isoSpecific,", ", inputGene)) + theme(legend.position = "None")
   }
   
   return(p)
