@@ -12,9 +12,11 @@
 ##   
 ## ---------- Notes -----------------
 ##
-## Pre-requisite: 
-## 1. generated and read in reults from E.Tseng scripts for calculating on-probe target rate
 
+LOGEN_ROOT = "/gpfs/mrc0/projects/Research_Project-MRC148213/sl693/scripts/LOGen/"
+source(paste0(LOGEN_ROOT, "compare_datasets/dataset_identifer.R"))
+suppressMessages(library("ggplot2"))
+suppressMessages(library("wesanderson"))
 
 ## ------------------- whole_vs_targeted_exp
 
@@ -42,47 +44,51 @@ whole_vs_targeted_exp <- function(class.files, dataset){
 
 # Aim: generate plots comparing whole vs targeted transcriptome of the same subset samples
 # Input:
-  # cuff_tmap: gffcompare result from comparison of whole vs targeted transcriptome
-  # TargetGene: vec: target genes 
-  # whole.class.files: df = classification file of whole transcriptome dataset of X samples
-  # subsettargeted.class.files: df = classification file of subsetted targeted dataset of X matched samples
+  # class.files: read in SQANTI classification file
+  # targetGene: vec: target genes 
+  # wholeSamples: vec: column names of the whole transcriptome sample in the SQANTI classification file
+  # targetedSamples: vec: column names of the targeted transcriptome sample in the SQANTI classification file
 # Pre-requisite:
-  # run gffcompare on linux 
+  # merged the demultiplexed reads from the whole and targeted transcriptome 
+  # align using pbmm2
+  # iso-seq3 collapse, sqanti3 QC and filter
 # Output:
   # p1: bar_plot of the number of isoforms in both, targeted and whole dataset only across target genes
   # p2: bar-plot of the number of isoforms by structural category in both and unique to targeted dataset
-  # p3: expression of isoforms unique to whole transcriptome data and commonly identified
-  # p4: expression of isoforms unique to targeted transcriptome data and commonly identified
+  # matchedSumTargeted: list of the isoforms and sum FL read expression across targeted and whole transcriptome dataset
 
-whole_vs_targeted_plots <- function(cuff_tmap, TargetGene, whole.class.files,subsettargeted.class.files){
+whole_vs_targeted_plots <- function(class.files, wholeSamples, targetedSamples, targetGene){
   
-  # identify commonly matched isoforms from gffcompare output
-  cuff_tmap_exact = cuff_tmap[cuff_tmap$class_code == "=",]
-  whole.class.files = whole.class.files %>% mutate(Matching = ifelse(isoform %in% cuff_tmap_exact$ref_id,"Both","Whole"))
-  subsettargeted.class.files = subsettargeted.class.files %>% mutate(Matching = ifelse(isoform %in% cuff_tmap_exact$qry_id,"Both","Targeted")) 
+  # sum the number of FL reads across the targeted and whole samples
+  matchedSum = merge(data.frame(class.files %>% select(all_of(targetedSamples)) %>% apply(., 1, sum)),
+                     data.frame(class.files %>% select(all_of(wholeSamples)) %>% apply(., 1, sum)),
+                     by = 0, all = T)
+  colnames(matchedSum) = c("isoform","sumTargeted","sumWhole")
+  
+  # annotate the isoforms and subset by target genes
+  matchedSum = merge(matchedSum, class.files [,c("isoform","associated_gene","structural_category")])
+  matchedSumTargeted = data.frame(matchedSum %>% filter(associated_gene %in% targetGene))
+  
+  # create a column by determining if the isoform is detected in both, whole or targeted
+  # if FL read >= 1; then considered detected
+  matchedSumTargeted$dataset <- apply(matchedSumTargeted, 1, function(x) identify_dataset_by_counts (x[["sumTargeted"]], x[["sumWhole"]], "Targeted","Whole"))
   
   # plots
-  cols = c("isoform","associated_gene","Matching","structural_category")
-  p1 = rbind(whole.class.files[whole.class.files$Matching != "Both",cols],subsettargeted.class.files[,cols]) %>% 
-    filter(associated_gene %in% TargetGene) %>%
-    group_by(associated_gene, Matching) %>% tally() %>%
-    ggplot(., aes(x = reorder(associated_gene, -n), fill = Matching, y = n)) + geom_bar(stat = "identity") +
-    mytheme + theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1)) + labs(x = "", y = "Number of Isoforms") +
-    scale_fill_manual(name = "", values = c(label_colour("whole"),label_colour("whole+targeted"),label_colour("targeted")))
+  totaln = matchedSumTargeted %>% group_by(associated_gene) %>% tally 
+  p1 <- matchedSumTargeted %>% group_by(associated_gene, dataset) %>% tally %>% 
+    full_join(., totaln, by = "associated_gene") %>%
+    ggplot(., aes(x = reorder(associated_gene,-n.y), y = n.x, fill = dataset)) + geom_bar(stat = "identity") +
+    mytheme + labs(x = "Target Genes", y = "Number of isoforms") +
+    scale_fill_manual(name = "", values = c(wes_palette("Darjeeling1")[1],wes_palette("Darjeeling2")[1],wes_palette("Darjeeling1")[2])) + 
+    theme(legend.position = "top") + theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1))
   
-  p2 = subsettargeted.class.files[subsettargeted.class.files$associated_gene %in% TargetGene,] %>%
-    group_by(structural_category, Matching) %>% tally() %>% 
-    ggplot(., aes(x = structural_category, y = n, fill = Matching)) + geom_bar(stat = "identity") + 
-    mytheme + labs(x = "Structural Category", y = "Number of Isoforms \n Targeted Transcriptome") +
-    scale_fill_manual(name = "", values = c(label_colour("whole+targeted"),label_colour("targeted"))) + 
+  p2 <- matchedSumTargeted %>% filter(dataset != "Both") %>%
+    group_by(structural_category, dataset) %>% tally() %>% 
+    ggplot(., aes(x = structural_category, y = n, fill = dataset)) + geom_bar(stat = "identity") + 
+    mytheme + labs(x = "Structural Category", y = "Number of isoforms") +
+    scale_fill_manual(name = "", values = c(wes_palette("Darjeeling2")[1],wes_palette("Darjeeling1")[2])) + 
     theme(legend.position = "top")
   
-  print(rbind(whole.class.files[whole.class.files$Matching != "Both",cols],subsettargeted.class.files[,cols]) %>% 
-          filter(associated_gene %in% TargetGene) %>%
-          group_by(Matching) %>% tally())
-  
-  p3 = whole_vs_targeted_exp(whole.class.files,"Whole")
-  p4 = whole_vs_targeted_exp(subsettargeted.class.files,"Targeted")
-  
-  return(list(p1,p2,p3,p4))
+  return(list(p1,p2,matchedSumTargeted))
 }
+

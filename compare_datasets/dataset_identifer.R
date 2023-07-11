@@ -38,6 +38,17 @@ identify_dataset <- function(isoform){
 
 }
 
+identify_dataset_by_counts <- function(col1,col2,name1,name2){
+  
+  col1 = as.numeric(col1)
+  col2 = as.numeric(col2)
+
+  if(col1 > 0 & col2 > 0){return("Both")
+  }else if(col1 == 0 & col2 > 0){return(name2)
+  }else if(col1 > 0 & col2 == 0){return(name1)
+  }else{return("NA")}
+  
+}
 
 ## ------------------- identify_dataset_specific_name
 
