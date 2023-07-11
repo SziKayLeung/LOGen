@@ -1,3 +1,5 @@
+
+suppressMessages(library(grid))
 # density plot
 density_plot <- function(dat,x.var,y.var, x_lab, y_lab,title){
   
@@ -31,6 +33,23 @@ density_plot <- function(dat,x.var,y.var, x_lab, y_lab,title){
     geom_smooth(method=lm, colour = "black") + 
     mytheme + 
     theme(legend.position = "none")
+  
+  return(p)
+}
+
+
+# Aim: plot the histogram of the feature (x.var), with Dataset as colour identifier 
+# Input:
+  # dat: df to plot, ensure "Dataset" column exists
+  # x.var = str: the column of df for plotting as x-variable
+  # xlab = str: x-label axis
+# Output: 
+  # histogram of feature distribution, colour-coded by dataset
+
+geom_density_plot <- function(dat, x.var, xlab){
+  
+  p <- ggplot(dat, aes(x = !! rlang::sym(quo_name(enquo(x.var))), fill = Dataset)) + 
+    geom_density(alpha = 0.2) + mytheme + labs(x = xlab, y = "Density") 
   
   return(p)
 }
