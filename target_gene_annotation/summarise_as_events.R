@@ -32,7 +32,7 @@ input_FICLE_splicing_results <- function(TG_anno_dir, filenames){
   
   # list the files with specific filename pattern in directory and read if file size != 0
   files <- list.files(path = TG_anno_dir, pattern = filenames, recursive = TRUE, full = T)
-  tab = lapply(files, function(x)  if(!file.size(x) == 0){print(x); read.csv(x)})
+  tab = lapply(files, function(x)  if(file.size(x) > 2 ){print(x); read.csv(x)})
   
   # save the files under the names of the gene, which is teh first saved character before "_"
   names(tab) = lapply(list.files(path = TG_anno_dir, pattern = filenames, recursive = TRUE), function(x) word(x, c(1), sep = fixed("/")))
@@ -72,7 +72,7 @@ plot_summarised_AS_events <- function(Merged_gene_class_df, TG_anno_dir, ref_gen
     ggplot(.,aes(x = associated_gene, y = perc, fill = AS)) + geom_bar(stat = "identity") + 
     scale_fill_manual(values = c(wes_palette("Moonrise1")[3],wes_palette("Royal1")[2],wes_palette("Zissou1")[[1]],
                                  wes_palette("IsleofDogs1")[1],wes_palette("Moonrise1")[4])) + mytheme + 
-    labs(x = "", y = "Percentage of Splicing Events (%)") + theme(legend.position = "top") + 
+    labs(x = "", y = "Percentage of splicing events (%)") + theme(legend.position = "top") + 
     theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1)) 
   total_AS = AS_df %>% group_by(AS) %>% tally(value)
   print(total_AS)
@@ -94,8 +94,8 @@ plot_summarised_AS_events <- function(Merged_gene_class_df, TG_anno_dir, ref_gen
                                                           "A5' A3' Extension","A5' A3' Truncation"), 
                       values = c(wes_palette("IsleofDogs1")[1], alpha(wes_palette("IsleofDogs1")[1],0.4),
                                  wes_palette("IsleofDogs2")[3], alpha(wes_palette("IsleofDogs2")[3],0.4),
-                                 wes_palette("GrandBudapest2")[1], wes_palette("Moonrise3")[1])) +
-    scale_y_continuous(labels = ks)
+                                 wes_palette("GrandBudapest2")[1], wes_palette("Moonrise3")[1])) #+
+    #scale_y_continuous(labels = ks)
   
   # input reference number of exons for each target gene
   # ref_maxexon = maximum number of exons
@@ -224,8 +224,8 @@ plot_summarised_ES <- function(gene_class, class.files, TG_anno_dir, ref_gencode
     scale_fill_manual(name = "ES", values = c("#F21A00","#E86F00","#E2B306","#E8C31E","#CAC656","#88BAA3","#5DAABC","#3B9AB2",
                                               alpha(wes_palette("Royal1")[1],0.5))) + 
     mytheme + labs(x = "", y = "Number of Isoforms (Thousands)") + 
-    theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1), legend.position = "right") + 
-    scale_y_continuous(breaks=number_ticks(5), labels = ks)
+    theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1), legend.position = "right") #+ 
+    #scale_y_continuous(breaks=number_ticks(5), labels = ks)
 
   return(list(p1,p2,p3,p4))  
 }
@@ -248,16 +248,18 @@ plot_summarised_ES <- function(gene_class, class.files, TG_anno_dir, ref_gencode
 plot_summarised_IR <- function(merged.class.files, TG_anno_dir, ont_abundance){
 
   # read in IR files from FICLE
-  IR_tab_df <- input_FICLE_splicing_results(TG_anno_dir, "Intron")
+  # 1. IR_tab_df = tabulates the gencode exon with IR and IR Match
+  # 2. IR_tab_counts = tabulates the number of IR events per transcript (note IR event can span across multiple exons)
+  IR_tab_df <- input_FICLE_splicing_results(TG_anno_dir, "IntronRetention_tab") %>% distinct()
+  IR_tab_counts <- input_FICLE_splicing_results(TG_anno_dir, "IntronRetentionCounts") %>% distinct()
+  IR_tab_exonoverlap <- input_FICLE_splicing_results(TG_anno_dir, "IntronRetentionExonOverlap")
 
   # tally the number of intron retention events per transcripts
-  nIR_events <- IR_tab_df %>% group_by(associated_gene, transcript_id) %>% tally() %>% dplyr::rename(IR = n)
-  nIR <- nIR_events %>% group_by(associated_gene,IR) %>% tally()
+  nIR_events <- IR_tab_counts %>% group_by(associated_gene,IR) %>% tally()
   
-  cat("Isoforms with more than 3 intron retention events")
-  print(nIR_events %>% filter(IR >= 3))
-
-  for(i in 1:nrow(nIR)){nIR[["col_group"]][i] = bin_num_events(nIR[["IR"]][i])}
+  # tally the number of exons spanning per transcript
+  nIR_exons <- IR_tab_exonoverlap %>% group_by(associated_gene,IRNumExonsOverlaps) %>% tally()
+  for(i in 1:nrow(nIR_exons)){nIR_exons[["col_group"]][i] = bin_num_events(nIR_exons[["IRNumExonsOverlaps"]][i])}
 
   # keep ONT isoforms only for expression given greater depth
   # need the merged dataframe for the isoform ID, given will be merging later with FICLE output (same ID)
@@ -265,34 +267,58 @@ plot_summarised_IR <- function(merged.class.files, TG_anno_dir, ont_abundance){
   
   # merge ont.class.files with expression
   if("ONT_isoform" %in% colnames(ont.class.files)){
-    ont.class.files.FL <- merge(ont.class.files, ont_abundance, by.x = "ONT_isoform", by.y = "annot_transcript_id", all.x = T)
+    ont.class.files.FL <- merge(ont.class.files, ont_abundance, by.x = "ONT_isoform", by.y = "isoform", all.x = T)
   }else{
-    ont.class.files.FL <- merge(ont.class.files, ont_abundance, by.x = "isoform", by.y = "annot_transcript_id", all.x = T)
+    ont.class.files.FL <- merge(ont.class.files, ont_abundance, by.x = "isoform", by.y = "isoform", all.x = T)
   }
   # merge the expression with the number of isoforms with IR events
-  IR_exp = merge(ont.class.files.FL, nIR_events, by.x = "isoform", by.y = "transcript_id", all.x = T) %>% mutate(IR = ifelse(IR_status == "No", 0, IR))
+  IR_exp = merge(ont.class.files.FL[,c("isoform","IR_status","normalised_counts")], IR_tab_counts, by.x = "isoform", by.y = "transcript_id", all.x = T) %>% 
+    mutate(IR = ifelse(IR_status == "No", 0, IR))
   
+  IR_exp = merge(ont.class.files.FL %>% group_by(isoform, associated_gene.y) %>% summarise_at(vars("normalised_counts"), sum),
+        IR_tab_counts[,c("transcript_id","IR")], by.x = "isoform", by.y = "transcript_id", all = T) %>%
+    drop_na(normalised_counts) %>% 
+    mutate(IR = ifelse(is.na(IR), 0, IR)) %>% 
+    `colnames<-`(c("isoform","associated_gene","normalised_counts","IREvents"))
+  
+  IR_exp  = merge(IR_exp, IR_tab_exonoverlap, by.x = "isoform", by.y = "transcript_id",all.x = TRUE) %>% 
+    select(isoform, associated_gene.x, normalised_counts, IREvents, IRNumExonsOverlaps) %>%
+    `colnames<-`(c("isoform","associated_gene","normalised_counts","IREvents","IRExons")) %>%
+    mutate(IRExons = ifelse(is.na(IRExons), 0, IRExons))
+    
+  print(IR_exp[IR_exp$IREvents > 1,])
   
   # plots
-  p1 <- nIR %>% mutate(col_group = factor(col_group, levels = c("0","1","2","3","4","5","6-10","10-15",">15"))) %>% 
-    filter(col_group != "0") %>%
-    ggplot(., aes(x = associated_gene, y = n, fill = forcats::fct_rev(col_group))) + geom_bar(stat = "identity") + 
-    scale_fill_manual(name = "IR", values = c("#CAC656","#88BAA3","#3B9AB2", alpha(wes_palette("Royal1")[1],0.5),alpha(wes_palette("Royal1")[2],0.5))) + 
-    mytheme + labs(x = "", y = "Number of Isoforms") + 
+  sortednIRExons <- nIR_exons %>% group_by(associated_gene) %>% tally(n) %>% arrange(-n)
+  p1 <- nIR_events %>% mutate(associated_gene = factor(associated_gene, levels = c(sortednIRExons$associated_gene))) %>% 
+    ggplot(., aes(x = associated_gene, y = n, fill = as.character(IR))) + geom_bar(stat = "identity") + 
+    scale_fill_manual(name = "IR", values = c("#F21A00","#88BAA3","#5DAABC","#3B9AB2", alpha(wes_palette("Royal1")[1],0.5))) +
+    mytheme + labs(x = "", y = "Number of isoforms") + 
     theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1), legend.position = c(0.8,0.8)) + 
-    scale_y_continuous(breaks=number_ticks(10))
+    scale_y_continuous(breaks=number_ticks(10)) +
+    guides(fill=guide_legend(title="IR events"))
   
-  p2 <- ggplot(IR_exp, aes(x = IR, y = log10(FL.y), group = IR)) + geom_boxplot() + 
-    mytheme + labs(x = "Number of IR events", y = "Transcript expression (log10)")
+ p2 <- nIR_exons %>% mutate(col_group = factor(col_group, levels = c("0","1","2","3","4","5","6-10","10-15",">15"))) %>% 
+    mutate(associated_gene = factor(associated_gene, levels = c(sortednIRExons$associated_gene))) %>%
+    filter(col_group != "0") %>%
+    ggplot(., aes(x = associated_gene, y = n, fill = col_group)) + geom_bar(stat = "identity") + 
+    scale_fill_manual(name = "IR", values = c("#F21A00",wes_palette("Darjeeling1")[3],"#88BAA3", wes_palette("Darjeeling2")[4], wes_palette("Darjeeling2")[2],wes_palette("Royal2")[2],wes_palette("Rushmore1")[4])) + 
+    mytheme + labs(x = "", y = "Number of isoforms") + 
+    theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1), legend.position = c(0.8,0.8)) + 
+    scale_y_continuous(breaks=number_ticks(10)) +
+   guides(fill=guide_legend(title="IR exons"))
   
-  p3 <- ggplot(IR_exp, aes(x = as.factor(IR), y = log10(FL.y), fill = as.factor(IR))) + geom_boxplot() + facet_grid(~associated_gene.x) +
-    labs(x = "Transcripts with Intron Retention", y = "ONT FL read count (Log10)") + mytheme_font +
-    scale_fill_discrete(name = "IR events") + 
-    theme(panel.grid.major = element_blank(),panel.grid.minor = element_blank(),
-          axis.text.x=element_blank(),axis.ticks.x=element_blank(), legend.position = "bottom",
-          strip.text.x = element_text(angle = 90))
+  p3 <- IR_exp %>% 
+    ggplot(., aes(x = as.factor(IREvents), y = log10(normalised_counts), group = IREvents)) + geom_boxplot() + 
+    mytheme + labs(x = "Number of IR events", y = "Transcript expression (log10)") 
   
-  return(list(p1,p2,p3))
+  p4 <- IR_exp %>% 
+    ggplot(., aes(x = as.factor(IRExons), y = log10(normalised_counts), group = IRExons)) + geom_boxplot() + 
+    mytheme + labs(x = "Number of IR events", y = "Transcript expression (log10)") 
+ 
+  #wilcox.test(IR_exp[IR_exp$IREvents == 0,"normalised_counts"],IR_exp[IR_exp$IREvents == 1,"normalised_counts"],exact = FALSE)
+
+  return(list(p1,p2,p3,p4))
   
 }
 
