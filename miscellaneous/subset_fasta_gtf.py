@@ -58,6 +58,10 @@ Subset bed based on list of transcripts
 """       
 def subset_bed(retainedID, input_bed, output_dir, name):  
   
+    '''
+    Assumes that transcript is in column 3 of bed file 
+    rewrites index with column 3 and subset
+    '''
     print("Reading bed:", input_bed)
     bed = pd.read_csv(input_bed, sep = "\t", header = None)
     bed.index = bed[3].values
@@ -102,11 +106,18 @@ Subset fasta based on list of transcripts
 :param name: string of name to be included in the output
 :writes subsetted fasta
 """      
-def subset_fasta(retainedID, input_fasta, name):
+def subset_fasta(retainedID, input_fasta, name, **kwargs):
     fasta_sequences = SeqIO.parse(open(input_fasta),'fasta')
     
     basename = '.'.join(os.path.basename(input_fasta).split(".")[:-1])
-    outputfile = basename + "_" + name +".fa"
+    outname = basename + "_" + name +".fa"
+    optdir = kwargs.get('dir', None)
+    if optdir is not None:
+        outdir = optdir
+    else:
+        outdir = os.path.dirname(input_fasta)
+    
+    outputfile = outdir + "/" + outname   
     print("Writing to:", outputfile)
     with open(outputfile, "w") as f:
         for seq in fasta_sequences:
@@ -147,12 +158,13 @@ def main():
         retainedID = [i.split(",") for i in args.ID_list][0]
     else:
         print("Error: need to include --id_list or --ID_list")
+        sys.exit()
     
     if args.fa:
-        subset_fasta(retainedID, args.input, args.output)
+        subset_fasta(retainedID, args.input, args.output, dir=args.dir)
         
     if args.gtf:
-        subset_gtf(retainedID, args.input, args.output)  
+        subset_gtf(retainedID, args.input, args.output, dir=args.dir)  
         
     if args.bed:
         subset_bed(retainedID, args.input, args.dir, args.output)
