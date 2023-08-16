@@ -98,6 +98,7 @@ SQANTI_class_preparation <- function(class.file,standard){
       xaxislabelsF1 <- c("FSM", "ISM", "NIC", "NNC", "Genic_Genomic",  "Antisense", "Fusion","Intergenic")
     }else{
       xaxislevelsF1 <- c("FSM","ISM","NIC","NNC", "genic","antisense","fusion","intergenic","genic_intron")
+      xaxislabelsF1 <- c("FSM", "ISM", "NIC", "NNC", "Genic_Genomic",  "Antisense", "Fusion","Intergenic", "Genic_Intron")
     }
   }else{
     xaxislevelsF1 <- c("full-splice_match","incomplete-splice_match","novel_in_catalog","novel_not_in_catalog", "genic","antisense","fusion","intergenic","genic_intron")
