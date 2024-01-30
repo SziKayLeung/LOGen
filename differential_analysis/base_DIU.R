@@ -47,17 +47,23 @@ minorFoldfilterTappas <- function(data, gen, minorfilter, minorMethod=c("PROP","
 
 spliceVariant.DS <- function(raw.counts, feature_association, factors) {
   library(edgeR)
-  tmm_factors = calcNormFactors(raw.counts)
-  DGEList_object_counts = DGEList(counts = round(raw.counts),
-                                  lib.size = colSums(raw.counts),
-                                  group = as.factor(factors[,"Replicate"]), genes = NULL,
-                                  norm.factors = tmm_factors, 
-                                  remove.zeros = FALSE)  
-  results = spliceVariants(DGEList_object_counts, geneID=as.character(feature_association[rownames(raw.counts),"id"]), 
-                           dispersion=NULL, estimate.genewise.disp = TRUE)$table[,"PValue",drop=F]
-  isoPerGene = table(feature_association["id"])
-  genesMoreOneIso = isoPerGene[isoPerGene>1] 
-  results_multi = results[names(genesMoreOneIso),,drop=F]
+  if(nrow(raw.counts) > 1){
+    tmm_factors = calcNormFactors(raw.counts)
+    DGEList_object_counts = DGEList(counts = round(raw.counts),
+                                    lib.size = colSums(raw.counts),
+                                    group = as.factor(factors[,"Replicate"]), genes = NULL,
+                                    norm.factors = tmm_factors, 
+                                    remove.zeros = FALSE)  
+    results = spliceVariants(DGEList_object_counts, geneID=as.character(feature_association[rownames(raw.counts),"id"]), 
+                             dispersion=NULL, estimate.genewise.disp = TRUE)$table[,"PValue",drop=F]
+    isoPerGene = table(feature_association["id"])
+    genesMoreOneIso = isoPerGene[isoPerGene>1] 
+    results_multi = results[names(genesMoreOneIso),,drop=F]
+  }else{
+    message("Null processing with edgeR as no more than 1 isoform retained")
+    results_multi = NULL
+  }
+
   return(results_multi)
 }
 

@@ -1,7 +1,9 @@
 
 library("wesanderson")
+library("stringr")
 LOGEN_ROOT = "/gpfs/mrc0/projects/Research_Project-MRC148213/sl693/scripts/LOGen/"
 source(paste0(LOGEN_ROOT, "differential_analysis/base_DIU.R"))
+source(paste0(LOGEN_ROOT, "aesthetics_basics_plots/pthemes.R"))
 
 ## ------------------- CalculateIFMean
 
@@ -32,7 +34,6 @@ runDIU <- function(transMatrixRaw,transMatrix,classf,myfactors,filteringType,fil
   # while recording the transcriptID for each row
   isoformID <- rownames(transMatrixRaw)
   genes <- transMatrixRaw$associated_gene
-  rownames(transMatrixRaw) <- NULL
   transMatrixRaw <- transMatrixRaw %>% dplyr::select(-associated_gene)
   
   # filter isoforms 
@@ -40,29 +41,32 @@ runDIU <- function(transMatrixRaw,transMatrix,classf,myfactors,filteringType,fil
   cat(paste0("\nFiltering new transcript matrix by ",filteringType,"...\n"))
   filterFC <- as.numeric(filterFC)
   # keeptrans = transcripts retained after filtering, represented as transMatrixRaw[index] 
-  keeptrans <- minorFoldfilterTappas(transMatrixRaw, genes, filterFC, minorMethod=filteringType)
-  transMatrixRaw <- transMatrixRaw[keeptrans,]
-  
-  # replace the index with original isoformID stored
-  row.names(transMatrixRaw) = isoformID[as.numeric(rownames(transMatrixRaw))]
-  
+  keeptrans <- minorFoldfilterTappas(data=transMatrixRaw,gen=genes, minorfilter=filterFC, minorMethod=filteringType)
+  transMatrixRaw <- transMatrixRaw[rownames(transMatrixRaw) %in% keeptrans, ]  
+  message("Number of kept isoforms: ", length(keeptrans))  
+  #transMatrixRaw
+
   # differential isoform usage
   cat("\nUsing EdgeR\n")
-  result = spliceVariant.DS(transMatrixRaw, genesdf, myfactors)
-  result$adj_PVALUE = p.adjust(result$PValue, method = "fdr")
-  
-  # calculate podium change
-  transMatrix = transMatrix[rownames(transMatrix) %in% classf$isoform, ]
-  pcList = podiumChange(transMatrix, genesdf, myfactors)
-  pcdf <- as.data.frame(pcList$podiumChange)
-  pcdf["totalChange"] <- pcList$totalChange
-  result_diu <- merge(result, pcdf, by=0)
-  colnames(result_diu) <- c("Gene","p.value","FDR","podiumChange","totalChange")
-  
-  # order by p.value
-  result_diu <- result_diu %>% arrange(p.value)
-  output <- list(result_diu, transMatrixRaw)
-  names(output) <- c("resultDIU","keptIso")
+  result = spliceVariant.DS(raw.counts=transMatrixRaw, feature_association=genesdf, factors=myfactors)
+  if(!is.null(result)){
+    result$adj_PVALUE = p.adjust(result$PValue, method = "fdr")
+    
+    # calculate podium change
+    transMatrix = transMatrix[rownames(transMatrix) %in% classf$isoform, ]
+    pcList = podiumChange(transMatrix, genesdf, myfactors)
+    pcdf <- as.data.frame(pcList$podiumChange)
+    pcdf["totalChange"] <- pcList$totalChange
+    result_diu <- merge(result, pcdf, by=0)
+    colnames(result_diu) <- c("Gene","p.value","FDR","podiumChange","totalChange")
+    
+    # order by p.value
+    result_diu <- result_diu %>% arrange(p.value)
+    output <- list(result_diu, transMatrixRaw)
+    names(output) <- c("resultDIU","keptIso")
+  }else{
+    output <- NULL
+  }
   return(output)
 }
 
@@ -98,6 +102,7 @@ CalculateIFMean <- function(rawExp, pheno){
   meanisoexp = cbind(rawExp %>% dplyr::select(contains(group1)) %>% apply(.,1,mean) %>% reshape2::melt(), 
                      rawExp %>% dplyr::select(contains(group2)) %>% apply(.,1,mean) %>% reshape2::melt()) %>% 
     `colnames<-`(c(paste0(group1,"_mean"), paste0(group2, "_mean")))   
+  rownames(meanisoexp) = rownames(rawExp)
   
   # determine the isoform fraction by mean/sum(mean)
   # same format as meanisoexp (only calculated percentage)
@@ -179,17 +184,17 @@ CalculateIFSample <- function(rawExp, pheno, majorIso){
 CalculateIFSample_TimeSeries <- function(IFSampleOutput,rank=NULL,isoSpecific=NULL){
   
   # iso = PB.XXX.XX whereas isoform = GeneY.XXX.XX
-  IF <- IFSampleOutput %>% group_by(sample,group,time,Iso,isoform) %>% tally(perc) %>% mutate(GroupIso = paste0(group, Iso))
+  IF <- IFSampleOutput %>% group_by(sample,group,time,isoform) %>% tally(perc) %>% mutate(GroupIso=paste0(group,isoform))
   
-  if(!is.null(rank)){
+  if(!is.null(rank) & rank > 0){
     cat("Keeping only the", rank, "most abundant isoforms\n")
-    major_isoforms <- as.data.frame(IF %>% group_by(Iso) %>% tally(n)) %>% arrange(-n) %>% .[1:rank,"Iso"]
-    IF <- IF %>% filter(Iso %in% major_isoforms)
-    IF$Iso <- factor(IF$Iso, levels = major_isoforms)
+    major_isoforms <- as.data.frame(IF %>% group_by(isoform) %>% tally(n)) %>% arrange(-n) %>% .[1:rank,"isoform"]
+    IF <- IF %>% filter(isoform %in% major_isoforms)
+    IF$isoform <- factor(IF$isoform, levels = major_isoforms)
   }else{
     cat("Keeping specific isoforms")
-    IF <- IF %>% filter(Iso %in% isoSpecific)
-    IF$Iso <- factor(IF$Iso, levels = isoSpecific)
+    IF <- IF %>% filter(isoform %in% isoSpecific)
+    IF$isoform <- factor(IF$isoform, levels = isoSpecific)
   }
 
   return(IF)
@@ -210,13 +215,16 @@ CalculateIFSample_TimeSeries <- function(IFSampleOutput,rank=NULL,isoSpecific=NU
   # rank = numeric: ranking for CalculateIFSample_TimeSeries
   # isoSpecific = str: isoform ID for CalculateIFSample_TimeSeries
 
-plotIF <- function(gene,ExpInput,pheno,cfiles,design="case_control",majorIso=NULL,rank=NULL,isoSpecific=NULL){
+plotIF <- function(gene,ExpInput,pheno,cfiles,design="case_control",majorIso=NULL,rank=3,isoSpecific=NULL,stats=FALSE){
   
   print(gene)
 
   # subset expression by all the isoforms associated with the gene 
   iso = subset(cfiles, associated_gene == gene) 
-  isoexp = ExpInput[which(rownames(ExpInput) %in% iso$isoform),] %>% dplyr::select(-c("associated_gene"))
+  isoexp = ExpInput %>% tibble::rownames_to_column("isoform") %>% 
+    filter(isoform %in% iso$isoform) %>% 
+    tibble::column_to_rownames(., var = "isoform") #%>% 
+    #dplyr::select(-c("associated_gene"))
 
   if(nrow(isoexp) > 1){
     # groups
@@ -224,62 +232,95 @@ plotIF <- function(gene,ExpInput,pheno,cfiles,design="case_control",majorIso=NUL
     group2 <- levels(pheno$group)[[2]]
     
     ##--- Method 1: determine isoform fraction by mean expression of isoform over sum of mean expression of all isoforms
-    IF1 <- CalculateIFMean(isoexp,pheno)
+    IF1 <- CalculateIFMean(rawExp=isoexp,pheno)
     
     ##--- Method 2: determine isoform fraction for each sample
     IF2 <- CalculateIFSample(isoexp,pheno,majorIso)
-    IF2$isoform <- gsub(paste0("PB.",word(IF2$isoform[1],c(2),sep=fixed("."))), gene, IF2$isoform)
-    
-    p1 = IF1 %>% reshape2::melt() %>% `colnames<-`(c("Var1", "Var2","value")) %>% 
+    if(isTRUE(grepl("PB",IF2$isoform[1]))){
+      IF2$renamedIsoform <- paste0("LR.",gsub(paste0("PB.",word(IF2$isoform[1],c(2),sep=fixed("."))), gene, IF2$isoform))
+    }else{
+      IF2$renamedIsoform <- IF2$isoform
+    }
+
+    p1 = IF1[1] %>% reshape2::melt(id="isoform") %>% `colnames<-`(c("Var1", "Var2","value")) %>% 
+      select(Var1,Var2,value) %>%
       mutate(group = factor(word(Var2,c(1),sep = fixed("_")), levels = c(group1,group2))) %>%
       ggplot(., aes(x = reorder(Var1,-value), y = value, fill = group)) + geom_bar(stat = "identity", position = position_dodge()) +
       theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1), legend.position = c(0.9,0.9)) +
-      labs(x = "Isoform", y = "Isoform fraction (%)", title = gene) + mythemeNoLegend + 
+      labs(x = "Isoform", y = "Isoform fraction (%)", title = gene) + mytheme + 
       scale_fill_manual(values = c(label_colour(group1),
                                    label_colour(group2)), " ",
-                        labels = c(label_group(group1),label_group(group2))) +
-      guides(fill = FALSE)
+                        labels = c(label_group(group1),label_group(group2))) 
     
-    # note if the isoSpecific isoform is not within the top 4, then take only the top however minus the isoSpecific isoforms
-    message("Selecting the top 3 isoforms, including:", isoSpecific)
+    # group by "iso" category (note some would be minor)
     IsoTally <- IF2 %>% group_by(Iso) %>% tally(perc) %>% arrange(-n)
-    IsoTally <- IsoTally %>% filter(Iso %in% isoSpecific) %>% bind_rows(IsoTally %>% filter(Iso != "Minor") %>% top_n(4 - length(isoSpecific))) %>% arrange(-n)
-    IsoTally$isoform <- gsub(paste0("PB.",word(IsoTally$Iso[1],c(2),sep=fixed("."))), gene, IsoTally$Iso)
     
-    p2 <- IF2 %>% group_by(sample,group,time,Iso,isoform) %>% tally(perc) %>%
-      filter(Iso %in% IsoTally$Iso) %>%
-      mutate(group = factor(group, levels = c(group1,group2))) %>%
-      ggplot(., aes(x = reorder(isoform,-n), y = n, colour = group)) + geom_boxplot(outlier.shape = NA) +
-      geom_point(aes(fill = group), size = 2, position = position_jitterdodge()) +
-      labs(x = "Isoform", y = "Isoform Fraction (%)", title = gene) + 
-      scale_colour_manual(values = c(label_colour(group1),label_colour(group2)), " ",
-                        labels = c(label_group(group1),label_group(group2)))  + mythemeNoLegend + 
+    if(rank == 0){
+      message("Selecting:", isoSpecific)
+      IsoTally <- IsoTally %>% filter(Iso %in% isoSpecific) %>% arrange(-n)
+
+    }else{
+      # note if the isoSpecific isoform is not within the top 4, then take only the top however minus the isoSpecific isoforms
+      message("Selecting the top ",rank, " isoforms, including:", isoSpecific)
+      topRankedTally <- IsoTally %>% filter(Iso != "Minor") %>% top_n(rank - length(isoSpecific))
+      IsoTally <- IsoTally %>% filter(Iso %in% isoSpecific) %>% bind_rows(topRankedTally) %>% arrange(-n)
+    }
+    
+    if(isTRUE(grepl("PB",IsoTally$Iso[1]))){
+      IsoTally$renamedIsoform <- paste0("LR.", gsub(paste0("PB.",word(IsoTally$Iso[1],c(2),sep=fixed("."))), gene, IsoTally$Iso))
+    }else{
+      IsoTally$renamedIsoform <- IsoTally$Iso
+    }
+
+    p2 <- IF2 %>% filter(isoform %in% IsoTally$Iso) %>% 
+      group_by(sample,group,time,renamedIsoform) %>% tally(perc) %>%
+      mutate(group = factor(group, levels = c(group1,group2)))
+    
+    if(length(unique(p2$renamedIsoform)) == 1){
+      p2 <- ggplot(p2, aes(x = group, y = n, colour = group)) +
+        geom_boxplot(outlier.shape = NA) +
+        geom_point(aes(fill = group), size = 2, position = position_jitterdodge()) +
+        labs(x = "Genotype", y = "Isoform fraction (%)", title = paste0(p2$renamedIsoform))
+      
+    }else{
+      p2 <- ggplot(p2, aes(x = reorder(renamedIsoform,-n), y = n, colour = group)) + geom_boxplot(outlier.shape = NA) +
+        geom_point(aes(fill = group), size = 2, position = position_jitterdodge()) +
+        labs(x = "Isoform", y = "Isoform fraction (%)", title = gene)   
+    }
+    p2 <- p2 + scale_colour_manual(values = c(label_colour(group1),label_colour(group2)), " ",
+                          labels = c(label_group(group1),label_group(group2))) + mytheme +
+      scale_fill_discrete(guide="none") +
       theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1), legend.position = c(0.9,0.9))
     
     if(design == "time_series"){
       # remove minor isoforms
-      IF2major <- IF2 %>% filter(Iso != "Minor") 
-      IF3 <- CalculateIFSample_TimeSeries(IF2major,rank=rank,isoSpecific=unique(IsoTally$Iso))
+      #IF2major <- IF2 %>% filter(Iso != "Minor") 
+      IF3 <- CalculateIFSample_TimeSeries(IF2,rank=rank,isoSpecific=unique(IsoTally$Iso))
+      IF3$renamedIsoform <- paste0("LR.",gsub(paste0("PB.",word(IF3$isoform[1],c(2),sep=fixed("."))), gene, IF3$isoform))
       IF3$group <- factor(IF3$group, levels = c(group1,group2))
-      IF3$isoform <- factor(IF3$isoform, levels = c(unique(IsoTally$isoform)))
+      IF3$isoform <- factor(IF3$isoform, levels = c(unique(IsoTally$Iso)))
       p3 <- ggplot(IF3, aes(x = as.factor(time), y = n, colour = group)) +  
-        geom_point(aes(colour = group), size = 2, position = position_jitterdodge()) + facet_grid(~isoform) +
+        geom_point(aes(colour = group), size = 2, position = position_jitterdodge(dodge.width=0.2)) +
         stat_summary(data=IF3, aes(x=as.factor(time), y=n, group=GroupIso), fun="mean", geom="line", linetype = "dotted")  +
-        labs(x = "Age (months)", y = "Isoform Fraction (%)", title = gene) +
+        labs(x = "Age (months)", y = "Isoform fraction (%)", title = gene) +
         scale_colour_manual(values = c(label_colour(group1),label_colour(group2)), " ",
-                            labels = c(label_group(group1),label_group(group2)),
-                            guide="none") + mythemeNoLegend + 
-        theme(legend.position = "bottom",legend.direction = "vertical", legend.box="horizontal", legend.margin=margin()) + 
-        scale_shape_manual(values=c(19, 0, 15),name = "Isoform", guide = guide_legend(title.position = "left")) +
-        theme(legend.key = element_blank(), strip.background = element_rect(colour="white", fill="white") )
+                            labels = c(label_group(group1),label_group(group2))) + mytheme + 
+        theme(legend.justification = c(0, 1), legend.position = "top", legend.margin=margin()) + 
+        scale_shape_manual(values=c(19, 0, 15),name = "Isoform", guide = guide_legend(title.position = "left")) 
       
+      if(length(unique(IF3$renamedIsoform)) == 1){
+        p3 <- p3 + labs(title = paste0(unique(IF3$renamedIsoform)))
+      }else{
+        p3 <- p3 + facet_grid(~renamedIsoform) + 
+          theme(legend.key = element_blank(), strip.background = element_rect(colour="white", fill="white"))
+      }
+
       output = list(p2,p3)
     }else{
-      output = list(p2)
+      output = list(p1,p2)
     }
     
   }else{
-    p2 = ggplot() + theme_void()
     output = list(p1,p2)
     if(design == "time_series"){
       p3 = ggplot() + theme_void()
@@ -287,7 +328,11 @@ plotIF <- function(gene,ExpInput,pheno,cfiles,design="case_control",majorIso=NUL
     }
   }
   
-  return(output)
+  if(isFALSE(stats)){
+    return(output) 
+  }else{
+    return(IF2)
+  }
 }
 
 
@@ -324,6 +369,13 @@ plotIFAll <- function(Exp,classf,pheno,majorIso){
     left_join(grouped, by = "associated_gene") %>%
     mutate(perc = meanvalues / x * 100) 
   
+  # number of isoforms less than 1% across all target genes 
+  minorLessThan1 <- merged %>% filter(perc < 1) %>% group_by(associated_gene) %>% tally()
+  message("Median number of isoforms less than 1%")
+  median(minorLessThan1$n)
+  message("Range number of isoforms less than 1%")
+  range(minorLessThan1$n)
+  
   # Select major and minor isoforms
   major <- merged %>% filter(majorminor != "minor") %>% select(isoform, associated_gene, structural_category, perc)
   minor <- merged %>% filter(majorminor == "minor") 
@@ -348,7 +400,12 @@ plotIFAll <- function(Exp,classf,pheno,majorIso){
     scale_fill_manual(name = "Isoform Classification", values = rev(c(alpha("#00BFC4",0.8),alpha("#00BFC4",0.3),
                                                                       alpha("#F8766D",0.8),alpha("#F8766D",0.3),
                                                                       alpha("#808080",0.3)))) +
-    geom_text(aes(label=n),color="black",size=4,position=position_stack(vjust=0.5))
+    geom_text(aes(label=n),color="black",size=4,position=position_stack(vjust=0.5)) +
+    theme(legend.position = "None")
   
-  return(p)
+  tab <- rbind(major,minorgrouped) %>%
+    full_join(., minortally, by = c("isoform", "associated_gene"))
+  
+  
+  return(list(p, tab))
 }
