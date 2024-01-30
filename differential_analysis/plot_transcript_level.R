@@ -1,16 +1,29 @@
 ## ---------- Plot gene and transcript expression -----------------
 
+
+relabel_case_control <- function(df){
+  
+  levels(df$group)[levels(df$group) %in% c("Control","CONTROL")] <- label_group("Control")
+  levels(df$group)[levels(df$group) %in% c("Case","CASE")]   <- label_group("Case")
+  df <- df %>% mutate(group = factor(group, levels = c(label_group("Control"),label_group("Case"))))
+  return(df)
+  
+}
+
 time_case_boxplot <- function(normalised_counts, transcript){
   
   df <- normalised_counts %>% filter(isoform == transcript)
+  df <- relabel_case_control(df)
   df$time <- as.factor(df$time)
+  isoID <- word(transcript,c(3),sep = fixed("."))
+  cate <- unique(df$structural_category)
   
-  p <- ggplot(df, aes(x = group, y = normalised_counts)) + geom_boxplot() +
+  p <- ggplot(df, aes(x = group, y = normalised_counts)) + geom_boxplot(outlier.shape = NA) +
     geom_point(position="jitter",aes(color = time), size = 3) +
-    theme_bw() +
-    labs(x = "Genotype", y = "Normalised counts",
-         title = paste0(unique(df$associated_gene),": ", transcript),
-         subtitle = df$associated_transcript) +
+    mytheme +
+    labs(x = "Genotype", y = "Normalized counts",
+         title = paste0("LR.", unique(df$associated_gene),".",isoID),
+         subtitle = paste0(df$associated_transcript," (",cate, ")")) +
     scale_colour_manual(name = "Age (months)",
                         values = c(wes_palette("Darjeeling2")[[5]], wes_palette("Zissou1")[[1]],
                                    wes_palette("Zissou1")[[3]],wes_palette("Zissou1")[[5]]))
@@ -39,7 +52,7 @@ plot_trans_exp <- function(InputGene, Norm_transcounts, type, name){
   }
   
   p <- ggplot(df, aes(x = reorder(isoform,-value), y = value, colour = group)) + geom_boxplot() + 
-    mytheme + labs(x = "", y = "Normalised Isoform Expression",title = plot_title) +
+    mytheme + labs(x = "", y = "Normalized Isoform Expression",title = plot_title) +
     scale_colour_manual(values = c(label_colour("Case"),label_colour("Control")), name = "Phenotype",
                         c(label_group("Control"),label_group("Case"))) +
     theme(strip.background = element_blank(), legend.position = "bottom",
@@ -58,11 +71,13 @@ plot_trans_exp_individual <- function(transcript, Norm_transcounts){
   print(transcript)
   dat <- Norm_transcounts %>% filter(isoform == transcript)
   gene <- dat$associated_gene[1]
+  group1 <- unique(Norm_transcounts$group)[1]
+  group2 <- unique(Norm_transcounts$group)[2]
   
   p <- ggplot(dat, aes(x = group, y = value, fill = group)) + geom_boxplot() + 
     geom_jitter(color="black", size=0.4, alpha=0.9) +
     labs(x = "", y = "Isoform Expression", 
-         title = paste0(gene, ":", "\n",transcript,"")) + mytheme + 
+         title = paste0(gene, ":",transcript,"")) + mytheme + 
     scale_fill_manual(values = c(label_colour(group1),label_colour(group2))) + 
     theme(legend.position = "none")
   
@@ -96,11 +111,10 @@ plot_trans_exp_individual_overtime <- function(transcript, Norm_transcounts,type
   }
 
   p <- ggplot(dat, aes(x = time, y = normalised_counts, colour = group)) + geom_point(size = 3) +
-    labs(x = "Age (months)", y = "Normalised counts", 
-         title = title, subtitle = subtitle) + mytheme + 
-    scale_colour_manual(values = c(label_colour(group1),label_colour(group2))) + 
     stat_summary(data=dat, aes(x=time, y=normalised_counts, group=group), fun ="mean", geom="line", linetype = "dotted") +
-    theme(legend.position = "none") 
+    labs(x = "Age (months)", y = "Normalized counts", 
+         title = title, subtitle = subtitle) + mytheme + 
+    scale_colour_manual(values = c(label_colour(group1),label_colour(group2))) 
   
   return(p)
 }
@@ -112,7 +126,7 @@ plot_all_gene_exp <- function(){
   p <- rbind(df1 %>% mutate(dataset = "IsoSeq"), df2 %>% mutate(dataset = "RNASeq"))%>% 
     mutate(group = factor(group, levels = c("CONTROL", "CASE"),labels = c("Ctrl", "AD"))) %>%
     ggplot(., aes(x = group, y = log10(Exp), fill = group)) + geom_boxplot() + facet_grid(dataset ~ associated_gene) + 
-    labs(y = "Normalised gene expression (Log10)", x = "Phenotype") + 
+    labs(y = "Normalized gene expression (Log10)", x = "Phenotype") + 
     scale_fill_manual(values = c(label_colour("AD"),label_colour("Control")), labels = c("AD","Control"),
                       name = "Phenotype") + 
     theme(legend.position = "top")  
@@ -128,9 +142,7 @@ subsetNormCounts <- function(inputGene, normCounts,design="time_series",show="al
   if(design=="time_series"){
     df$time <- as.factor(df$time)
   }else if(design != "multiple_case_control"){
-    levels(df$group)[levels(df$group) %in% c("Control","CONTROL")] <- label_group("Control")
-    levels(df$group)[levels(df$group) %in% c("Case","CASE")]   <- label_group("Case")
-    df <- df %>% mutate(group = factor(group, levels = c(label_group("Control"),label_group("Case"))))
+    df <- relabel_case_control(df)
   }
 
   if(show == "toprank"){
@@ -152,41 +164,69 @@ subsetNormCounts <- function(inputGene, normCounts,design="time_series",show="al
   return(df)
 }
 
+replace_pbID <- function(PbID, gene){
+  isoform <- word(PbID, c(3), sep = fixed("."))
+  return(paste0("LR.",gene,".",isoform))
+}
 
-plot_transexp_overtime <- function(inputGene, normCounts,design="time_series",show="all",rank=5, isoSpecific=NULL, plotTitle=NULL,setorder=NULL){
+
+plot_transexp_overtime <- function(inputGene, normCounts,design="time_series",show="all",rank=5, isoSpecific=NULL, plotTitle=NULL,setorder=NULL,classfiles=NULL){
   
   df <- subsetNormCounts(inputGene,normCounts,design=design,show=show,rank=rank,isoSpecific=isoSpecific)
+  df$LRID <- apply(df, 1, function(x) replace_pbID (x[["isoform"]], x[["associated_gene"]]))
   
-  if(!is.null(setorder)){
+  if(!is.null(classfiles)){
+    df <- merge(df,classfiles[,c("isoform","structural_category")], by = "isoform")
+    df<- df %>% mutate(LRID_struc = paste0(LRID," (", structural_category, ")"))
+  }
+  
+  if(!is.null(setorder) & design != "multiple_case_control"){
     df$group <- factor(df$group, levels = setorder,
                        labels = c(label_group(setorder[1]),label_group(setorder[2])))
-    }
+  }else{
+    df$group <- factor(df$group, levels = setorder)
+  }
   
   if(design != "time_series"){
   
-    p <- ggplot(df, aes(x = group, y = normalised_counts, colour = isoform)) + geom_boxplot() + 
+    p <- ggplot(df, aes(x = group, y = normalised_counts, colour = LRID)) + geom_boxplot(outlier.shape = NA) + 
       geom_point(position = position_jitterdodge()) +
-      mytheme + labs(x = " ", y = "Normalised Counts", title = inputGene) +
+      mytheme + labs(x = " ", y = "Normalized counts", title = inputGene) +
       theme(strip.background = element_blank(), legend.position = "bottom",
             plot.title = element_text(hjust = 0.5, size = 16,face = "italic"),panel.spacing = unit(2, "lines"),
             text=element_text(size=16)) +
       guides(colour=guide_legend(ncol=3,bycol=TRUE))
     
+    return(p)
+    
   }else if(design == "time_series"){
     
-    p <- ggplot(df, aes(x = time, y = normalised_counts, colour = isoform)) + geom_point(size = 3) + 
-      facet_grid(~group,scales = "free", space = "free") +
-      stat_summary(data=df, aes(x=time, y=normalised_counts, group=isoform), fun ="mean", geom="line", linetype = "dotted", size = 1.5) +
-      mytheme + labs(x = "Age (months)", y = "Normalised counts", title = inputGene) +
-      theme(strip.background = element_blank(), 
+    if(length(unique(df$isoform)) == 1){
+      p <- ggplot(df, aes(x = time, y = normalised_counts, colour = group)) + geom_point(size = 3) +
+        stat_summary(data=df, aes(x=time, y=normalised_counts, group=group), fun ="mean", geom="line", linetype = "dotted", size = 1.5) +
+        mytheme + labs(x = "Age (months)", y = "Normalized counts", title = inputGene) +
+        scale_colour_manual(values = c(label_colour(levels(df$group)[1]),label_colour(levels(df$group)[2]))) 
+    }else{
+      p <- ggplot(df, aes(x = time, y = normalised_counts, colour = LRID)) + geom_point(size = 3) + 
+        facet_grid(~group,scales = "free", space = "free") +
+        mytheme + labs(x = "Age (months)", y = "Normalized counts", title = inputGene)  +
+        stat_summary(data=df, aes(x=time, y=normalised_counts, group=LRID), fun ="mean", geom="line", linetype = "dotted", size = 1.5)
+    }
+    p <- p + theme(strip.background = element_blank(), 
             text=element_text(size=16),
-            plot.title = element_text(hjust = 0.5, size = 16,face = "italic",),
+            plot.title = element_text(hjust = 0, size = 16),
             panel.spacing = unit(1, "lines"),
             legend.position = c(0.4,0.8))
   }
   
   if(show == "specific" & length(isoSpecific) == 1){
-    p <- p + labs(title = paste0(isoSpecific,", ", inputGene)) + theme(legend.position = "None")
+    if(!is.null(classfiles)){
+      struc = unique(df$structural_category)
+      isotitle = paste0("LR.", inputGene,".",word(isoSpecific,c(3),sep=fixed("."))," (",struc,")")
+    }else{
+      isotitle = paste0("LR.", inputGene,".",word(isoSpecific,c(3),sep=fixed("."))) 
+    }
+    p <- p + labs(title = isotitle) + theme(legend.position = "None")
   }
   
   return(p)
@@ -211,7 +251,7 @@ twocate_plot_transexp <- function(transcript, exp_matrix, phenotype){
   
   p <- ggplot(df, aes(x = as.factor(time), y = value, fill = group)) + geom_boxplot() +
     scale_x_discrete(labels = c(label_group("0_timeanalysis"),label_group("1_timeanalysis"))) + 
-    labs(x = "", y = "Normalised counts", title = transcript) +
+    labs(x = "", y = "Normalized counts", title = transcript) +
     scale_fill_discrete(labels = c(label_group("Case_timeanalysis"),label_group("Control_timeanalysis"))) +
     mytheme
   
@@ -227,7 +267,7 @@ plot_transexp_overtime_filter <- function(InputGene,Norm_transcounts,original_no
   
   p <- ggplot(df, aes(x = group, y = value, colour = Isoform)) + geom_point() + 
     stat_summary(data=df, aes(x=group, y=value, group=Isoform), fun ="mean", geom="line", linetype = "dotted") +
-    mytheme + labs(x = " ", y = "Normalised Counts",title = plot_title) +
+    mytheme + labs(x = " ", y = "Normalized Counts",title = plot_title) +
     theme(strip.background = element_blank(), legend.position = "bottom",plot.title = element_text(hjust = 0.5, size = 16,face = "italic"),panel.spacing = unit(2, "lines")) +
     guides(colour=guide_legend(ncol=3,bycol=TRUE)) 
   

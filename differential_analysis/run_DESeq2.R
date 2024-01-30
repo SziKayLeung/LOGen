@@ -8,7 +8,6 @@ suppressMessages(library("ggrepel"))
 
 run_DESeq2 <- function(test,expression,phenotype,exprowname=NULL,threshold=10,controlname="Control",design="time_series",interaction="Off",groupvar="factor"){
   
-  
   # input phenoptype characteristics as factor
   if(groupvar=="factor"){
     cat("Group variable as factor\n")
@@ -27,13 +26,19 @@ run_DESeq2 <- function(test,expression,phenotype,exprowname=NULL,threshold=10,co
   col_match <- intersect(phenotype$sample, colnames(expression))
   cat("Number of samples:", length(col_match),"\n")
   
+  
   # ensure expression column and phenotype rows are in the same order
   if(!is.null(exprowname)){
-    #rownames(expression) <- expression[[exprowname]]
     expression <- expression %>% tibble::column_to_rownames(exprowname)
   }
   phenotype <- phenotype %>% filter(sample %in% col_match) 
   expression <- expression %>% dplyr::select(phenotype$sample)
+  
+  # set as matrix
+  rownamesExp <- rownames(expression)
+  expression <- as.matrix(expression)
+  rownames(expression) <- rownamesExp
+  
   rownames(phenotype) <- phenotype$sample
   phenotype <- phenotype %>% dplyr::select(-sample)
   if(all(colnames(expression) == rownames(phenotype))==FALSE){
