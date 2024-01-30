@@ -28,6 +28,7 @@
 
 suppressMessages(library("dplyr"))
 suppressMessages(library("stringr"))
+suppressMessages(library("data.table"))
 
 
 ## ------------------- annotate_class_binary
@@ -73,7 +74,7 @@ annotate_class_binary  <- function(class.files){
 SQANTI_class_preparation <- function(class.file,standard){
   
   cat("Loading classification file:",class.file,"\n")
-  data.class = read.table(class.file, header=T, as.is=T, sep="\t")
+  data.class = fread(class.file)
   rownames(data.class) <- data.class$isoform
   
   # SQANTI versions (v5.0) change column names for dist_to_cage_peak and within_cage_peak 
@@ -139,13 +140,19 @@ SQANTI_class_preparation <- function(class.file,standard){
                               levels = c("Multi-Exon","Mono-Exon"),
                               ordered=TRUE)
   
-  data.class$all_canonical = factor(data.class$all_canonical,
-                                    levels = c("canonical","non_canonical"),
-                                    ordered=TRUE)
-  
-  data.class$within_cage_peak = factor(data.class$within_cage_peak)
-  data.class$within_cage_peak <- factor(data.class$within_cage_peak, c("True","False"))
-  
+  if("all_canonical" %in% colnames(data.class)){
+    data.class$all_canonical = factor(data.class$all_canonical,
+                                      levels = c("canonical","non_canonical"),
+                                      ordered=TRUE)
+    
+    data.class$within_cage_peak = factor(data.class$within_cage_peak)
+    data.class$within_cage_peak <- factor(data.class$within_cage_peak, c("True","False"))
+    
+    # further annotate classification files by within_cage etc.
+    data.class <- annotate_class_binary(data.class)
+    
+  }
+ 
   if(standard == "standard"){
     # relabel the sum of the samples FL due to demultiplexing 
     # starts with FL refer to columns with samples
@@ -159,10 +166,48 @@ SQANTI_class_preparation <- function(class.file,standard){
     data.class$ISOSEQ_TPM <- data.class$FL*(10**6)/total_fl
     data.class$Log_ISOSEQ_TPM <- log10(data.class$ISOSEQ_TPM)
   }
-  
-  # further annotate classification files by within_cage etc.
-  data.class <- annotate_class_binary(data.class)
 
+  return(as.data.frame(data.class))
+}
+
+
+## ------------------- pSQANTI_class_preparation
+
+# Aim: read and wrangle classification file generated from SQANTI protien classification file (proteogenomics pipeline)
+  # Note: function adapted from Liz Tseng (SQANTI_report2.R)
+  # convert ensembl gene id if present using biomart for human dataset
+# Input:
+  # path.class.file = str: path of classification file generated from SQANTI
+# Output: df 
+
+pSQANTI_class_preparation <- function(class.file, species="human"){
+  cat("Loading classification file:",class.file,"\n")
+  data.class = fread(class.file)
+  rownames(data.class) <- data.class$pb
+  
+  xaxislevelsF1 <- c("full-splice_match","incomplete-splice_match","novel_in_catalog","novel_not_in_catalog", "genic","antisense","fusion","intergenic","genic_intron")
+  xaxislabelsF1 <- c("FSM", "ISM", "NIC", "NNC", "Genic_Genomic",  "Antisense", "Fusion","Intergenic", "Genic_Intron")
+  
+  data.class$tx_cat = factor(data.class$tx_cat,
+                             labels = xaxislabelsF1, 
+                             levels = xaxislevelsF1,
+                             ordered=TRUE)
+  
+  data.class$pr_splice_cat = factor(data.class$pr_splice_cat,
+                             labels = xaxislabelsF1, 
+                             levels = xaxislevelsF1,
+                             ordered=TRUE)
+  
+  if(grepl("ENS", data.class$tx_gene[1]) & species == "human"){
+    message("Generating a gene name column using ensembl id")
+    suppressMessages(library('biomaRt'))
+    mart <- useDataset("hsapiens_gene_ensembl", useMart("ensembl"))
+    data.class <- data.class %>% mutate(ensembl_gene_id = word(tx_gene,c(1),sep=fixed(".")))
+    G_list <- getBM(filters= "ensembl_gene_id", attributes= c("ensembl_gene_id","hgnc_symbol"),values=word(data.class$ensembl_gene_id),mart= mart,useCache = FALSE)
+    colnames(G_list) <- c("ensembl_gene_id","tx_genename")
+    data.class <- merge(data.class,G_list,by="ensembl_gene_id",all.x = T)
+  }
+  
   return(data.class)
 }
 
@@ -188,25 +233,18 @@ SQANTI_gene_preparation <- function(data_class_output_file){
     isoPerGene = aggregate(data_class_output_file$isoform,
                            by = list("associatedGene" = data_class_output_file$associated_gene,
                                      "novelGene" = data_class_output_file$novelGene,
-                                     "FSM_class" = data_class_output_file$FSM_class,
                                      "geneExp"=data_class_output_file$gene_exp),
                            length)
   } else {
     isoPerGene = aggregate(data_class_output_file$isoform,
                            by = list("associatedGene" = data_class_output_file$associated_gene,
                                      "novelGene" = data_class_output_file$novelGene,
-                                     "FSM_class" = data_class_output_file$FSM_class,
                                      "structural_category" = data_class_output_file$structural_category),
                            length)
   }
   # assign the last column with the colname "nIso" (number of isoforms)
   colnames(isoPerGene)[ncol(isoPerGene)] <- "nIso"
   
-  
-  isoPerGene$FSM_class2 = factor(isoPerGene$FSM_class, 
-                                 levels = c("A", "B", "C"), 
-                                 labels = c("MonoIsoform Gene", "MultiIsoform Genes\nwithout expression\nof a FSM", "MultiIsoform Genes\nexpressing at least\none FSM"), 
-                                 ordered=TRUE)
   
   isoPerGene$novelGene = factor(isoPerGene$novelGene, 
                                 levels = c("Annotated Genes", "Novel Genes"), 
@@ -263,26 +301,25 @@ targeted_remove_3ISM <- function(TargetGenelist, class.files){
 # Assumptions:
   # 0 FL reads across all samples in condition => not detected in condition
 # Input:
-  # class.files = df: SQANTI classification file after processing SQANTI_class_preparation()
+  # classfiles = df: SQANTI classification file after processing SQANTI_class_preparation()
   # phenotype_file = df: read in phenotype file; <Sample.ID; condition>
   # condition = str of condition to subset (i.e. AD)
 # Output:
-  # class.files of the isoforms detected in the samples of interest 
+  # classfiles of the isoforms detected in the samples of interest 
 
-subset_class_phenotype <- function(class.files, phenotype_file, condition){
+subset_class_phenotype <- function(classfiles, phenotype_file, condition){
   
-  class.files <- annotate_class_binary(class.files) 
+  classfiles <- annotate_class_binary(classfiles) 
   cols = c("isoform", "min_cov","associated_gene", "exons", "length", "dist_to_cage_peak", 
            "within_50_cage", "dist_to_polya_site","within_50_TTS","within_50_TSS",
            "within_polya_site","polyA_motif","structural_category","subcategory",
            "diff_to_TTS","diff_to_TSS","diff_to_gene_TTS","diff_to_gene_TSS","structural_category")
+  con_cols = paste0("FL.", phenotype_file[phenotype_file$Phenotype == condition,"Sample.ID"])
   
-  class.files <- class.files %>% 
-    dplyr::select(cols, paste0("FL.", phenotype_file[phenotype_file$Phenotype == condition,"Sample.ID"])) %>% 
-    mutate(TotalFL = rowSums(.[paste0("FL.", phenotype_file[phenotype_file$Phenotype == condition,"Sample.ID"])])) %>%
-    filter(TotalFL > 0) %>% mutate(Dataset = condition) 
+  classfiles$TotalFL <- rowSums(classfiles %>% select(all_of(con_cols)))
+  classfiles <- classfiles %>% filter(TotalFL > 0) %>% dplyr::select(cols, con_cols, TotalFL)  %>% mutate(Dataset = condition) 
   
-  return(class.files)
+  return(classfiles)
 }
 
 
