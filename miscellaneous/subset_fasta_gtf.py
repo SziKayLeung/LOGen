@@ -31,7 +31,13 @@ def subset_gtf(retainedID, input_gtf, name, **kwargs):
     
     # variables
     basename = os.path.basename(input_gtf)
-    outname = basename.replace(".gtf", "_" + name +".gtf")
+    extension = basename.split(".")[-1]
+
+    if extension == "gtf":
+        outname = basename.replace(".gtf", "_" + name +".gtf")
+    else:
+       outname = basename.replace(".gff", "_" + name +".gff")
+
     optdir = kwargs.get('dir', None)
     if optdir is not None:
         outdir = optdir
@@ -126,15 +132,15 @@ def subset_fasta(retainedID, input_fasta, name, **kwargs):
               
                 
 def main():
-    parser = argparse.ArgumentParser(description="Subset fasta and gtf from list of ID")
-    parser.add_argument('input', help='\t\tInput file to subset: gtf, fasta or bed')
+    parser = argparse.ArgumentParser(description="Subset fasta and gtf(gff) from list of ID")
+    parser.add_argument('input', help='\t\tInput file to subset: gtf(gff), fasta or bed')
     parser.add_argument('-i', '--id_list', required=False, help='\t\tTxt file of list of ID to subset, no rownames and colnames')
     parser.add_argument('-I', '--ID_list', required=False, nargs='+', help='\t\tlist of ID to subset - direct on command line delimited by ,')
     parser.add_argument('--fa', default=False, action="store_true", help='\t\tTo subset fasta input file')
-    parser.add_argument('--gtf', default=False, action="store_true", help='\t\tTo subset gtf input file')
+    parser.add_argument('--gtf', default=False, action="store_true", help='\t\tTo subset gtf or gff input file')
     parser.add_argument('--bed', default=False, action="store_true", help='\t\tTo subset bed input file')
-    parser.add_argument('-o','--output', required=False, help='\t\tPrefix for output file; Default: out.')
-    parser.add_argument('-d','--dir', required=False, help='\t\tDirectory for output files. Default: directory of input file.')
+    parser.add_argument('-o','--output', default="out", required=False, help='\t\tPrefix for output file; Default: out.')
+    parser.add_argument('-d','--dir', default=None, required=False, help='\t\tDirectory for output files. Default: directory of input file.')
   
     args = parser.parse_args()
     args.basename = '.'.join(os.path.basename(args.input).split(".")[:-1])
@@ -144,11 +150,13 @@ def main():
         print("Error: need to include --fa or --gtf or --bed to define input format")
         sys.exit()
     
-    if args.output is None:
-        args.output = "out" 
-    
     if args.dir is None:
-        args.dir =  os.path.dirname(args.input)
+        if not os.path.dirname(args.input):
+          # If it's empty, set it to the current directory
+          args.input = os.path.join(os.getcwd(), args.input)
+        args.dir = os.path.dirname(args.input) + "/"
+    else:
+        args.dir = args.dir + "/"
         
     if args.id_list is not None:
         print("Reading in", args.id_list)

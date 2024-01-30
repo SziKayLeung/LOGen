@@ -264,16 +264,20 @@ def main():
     parser.add_argument('--cpat', "--cpat_ORF", help='\t\tCPAT output file of best ORFs')
     parser.add_argument('--noORF',"--CPAT_noORF", help='\t\tCPAT output file of transcripts with no ORFs')
     parser.add_argument('--a',"--abundance", help='\t\tAbundance file of FL reads from final merged dataset')
-    parser.add_argument('--o',"--output", help='\t\tOutput coloured bed12 file from the final merged dataset')
+    parser.add_argument('--o',"--output", default = "output", help='\t\tOutput coloured bed12 file from the final merged dataset. Default: output')
     parser.add_argument('-s','--species', default = None, choices=['human', 'mouse'], required=False, help='\t\tDirectory for output files. Default: Directory of input bed.')
     parser.add_argument('-d','--dir', required=False, help='\t\tDirectory for output files. Default: Directory of input bed.')
     
-    args = parser.parse_args() 
+    args = parser.parse_args()
     
     #---- QC arguments
     
     if args.dir is None:
-        args.dir = os.path.dirname(args.bed) + "/"
+       if not os.path.dirname(args.bed):
+         # If it's empty, set it to the current directory
+          args.classFile = os.path.join(os.getcwd(), args.bed)
+
+       args.dir = os.path.dirname(args.bed) + "/"
     print("Writing output files to:", args.dir)
     
     # required input if input coding potential file   
