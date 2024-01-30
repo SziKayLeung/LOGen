@@ -59,7 +59,7 @@ input_FICLE_splicing_results <- function(TG_anno_dir, filenames){
   # p2: bar-plot of the number of isoforms with different A5 A3 classifications 
   # p3: bar-plot of th percentage of isoforms with A5A3 splice sites in first, internal and last exons
 
-plot_summarised_AS_events <- function(Merged_gene_class_df, TG_anno_dir, ref_gencode){
+plot_summarised_AS_events <- function(Merged_gene_class_df, TG_anno_dir, ref_gencode=NULL){
   
   # only interested in these AS events to plot
   AS = c("AP","ES","IR","A5A3","AT")
@@ -72,7 +72,7 @@ plot_summarised_AS_events <- function(Merged_gene_class_df, TG_anno_dir, ref_gen
     ggplot(.,aes(x = associated_gene, y = perc, fill = AS)) + geom_bar(stat = "identity") + 
     scale_fill_manual(values = c(wes_palette("Moonrise1")[3],wes_palette("Royal1")[2],wes_palette("Zissou1")[[1]],
                                  wes_palette("IsleofDogs1")[1],wes_palette("Moonrise1")[4])) + mytheme + 
-    labs(x = "", y = "Percentage of splicing events (%)") + theme(legend.position = "top") + 
+    labs(x = "", y = "Splicing events (%)") + theme(legend.position = "top") + 
     theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1)) 
   total_AS = AS_df %>% group_by(AS) %>% tally(value)
   print(total_AS)
@@ -87,7 +87,7 @@ plot_summarised_AS_events <- function(Merged_gene_class_df, TG_anno_dir, ref_gen
                                           "TruncatedBothA3A5","ExtendedBothA3A5","ExtendedTruncatedA3")))  %>%
     filter(cate != "ExtendedTruncatedA3") %>%
     ggplot(., aes(x = reorder(associated_gene,-n), y = n, fill = cate)) + geom_bar(stat = "identity") + 
-    labs(x = "", y = "Number of Isoforms (Thousands)") + mytheme +
+    labs(x = "", y = "Number of isoforms (K)") + mytheme +
     theme(legend.position = c(0.7,0.7)) + 
     theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1)) +
     scale_fill_manual(name = "Classification", labels = c("A5' Extension", "A3' Extension", "A5' Truncation","A3' Truncation",
@@ -99,29 +99,33 @@ plot_summarised_AS_events <- function(Merged_gene_class_df, TG_anno_dir, ref_gen
   
   # input reference number of exons for each target gene
   # ref_maxexon = maximum number of exons
-  A5A3_all = A5A3_all %>% mutate(exon = as.factor(paste0(associated_gene,"_", word(gencode_exon,c(2), sep = fixed("_")))))
-  ref_maxexon <- ref_gencode %>% mutate(code = paste0(associated_gene,"_", Maxexons), class = "Last") %>% select(associated_gene,code,class)
-  ref_firstexon <- ref_gencode %>% mutate(code = paste0(associated_gene,"_1"), class = "First") %>% select(associated_gene, code, class)
-  refexons <- rbind(ref_maxexon, ref_firstexon)
+  if(!is.null(ref_gencode)){
+    A5A3_all = A5A3_all %>% mutate(exon = as.factor(paste0(associated_gene,"_", word(gencode_exon,c(2), sep = fixed("_")))))
+    ref_maxexon <- ref_gencode %>% mutate(code = paste0(associated_gene,"_", Maxexons), class = "Last") %>% select(associated_gene,code,class)
+    ref_firstexon <- ref_gencode %>% mutate(code = paste0(associated_gene,"_1"), class = "First") %>% select(associated_gene, code, class)
+    refexons <- rbind(ref_maxexon, ref_firstexon)
+    
+    dat = merge(A5A3_all, refexons, by.x = "exon", by.y = "code", all.x = T) %>% mutate(class = as.character(class))
+    dat$class[is.na(dat$class)] <- "internal"
+    nA5A3 = dat %>% group_by(associated_gene.x) %>% tally()
+    
+    # p3: bar-plot of th percentage of isoforms with A5A3 splice sites in first, internal and last exons
+    p3 = dat %>% group_by(associated_gene.x, class) %>% tally() %>% 
+      left_join(., nA5A3, by = c("associated_gene.x" = "associated_gene.x")) %>% 
+      mutate(perc = n.x/n.y * 100) %>%
+      ggplot(., aes(x = associated_gene.x, y = perc, fill = class)) + geom_bar(stat = "identity") +
+      theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1)) +
+      mytheme + labs(x = "", y = "Percentage of isoforms with A5A3 splice sites (%)") + 
+      theme(legend.position = "top") +
+      scale_fill_manual(name = "Exon", labels = c("First", "Internal", "Last"), 
+                        values = c(wes_palette("IsleofDogs1")[2], alpha(wes_palette("IsleofDogs1")[1],0.4),
+                                   wes_palette("IsleofDogs2")[4])) 
+    
+    return(list(p1,p2,p3))
+  }else{
+    return(list(p1,p2))
+  }
   
-  dat = merge(A5A3_all, refexons, by.x = "exon", by.y = "code", all.x = T) %>% mutate(class = as.character(class))
-  dat$class[is.na(dat$class)] <- "internal"
-  
-  nA5A3 = dat %>% group_by(associated_gene.x) %>% tally()
-  
-  # p3: bar-plot of th percentage of isoforms with A5A3 splice sites in first, internal and last exons
-  p3 = dat %>% group_by(associated_gene.x, class) %>% tally() %>% 
-    left_join(., nA5A3, by = c("associated_gene.x" = "associated_gene.x")) %>% 
-    mutate(perc = n.x/n.y * 100) %>%
-    ggplot(., aes(x = associated_gene.x, y = perc, fill = class)) + geom_bar(stat = "identity") +
-    theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1)) +
-    mytheme + labs(x = "", y = "Percentage of isoforms with A5A3 splice sites (%)") + 
-    theme(legend.position = "top") +
-    scale_fill_manual(name = "Exon", labels = c("First", "Internal", "Last"), 
-                      values = c(wes_palette("IsleofDogs1")[2], alpha(wes_palette("IsleofDogs1")[1],0.4),
-                                 wes_palette("IsleofDogs2")[4])) 
-  
-  return(list(p1,p2,p3))
 }
 
 
@@ -223,7 +227,7 @@ plot_summarised_ES <- function(gene_class, class.files, TG_anno_dir, ref_gencode
   p4 <- ggplot(nES, aes(x = as.factor(associated_gene), y = n, fill = forcats::fct_rev(col_group))) + geom_bar(stat = "identity") + 
     scale_fill_manual(name = "ES", values = c("#F21A00","#E86F00","#E2B306","#E8C31E","#CAC656","#88BAA3","#5DAABC","#3B9AB2",
                                               alpha(wes_palette("Royal1")[1],0.5))) + 
-    mytheme + labs(x = "", y = "Number of Isoforms (Thousands)") + 
+    mytheme + labs(x = "", y = "Number of isoforms (K)") + 
     theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1), legend.position = "right") #+ 
     #scale_y_continuous(breaks=number_ticks(5), labels = ks)
 

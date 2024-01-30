@@ -34,10 +34,10 @@
 # Output:
   # df: summary descriptives of the number of transcripts etc for said target gene
 
-summarise_gene_stats <- function(class.files, gene_class, input_cpat, input_noORF, gene){
+summarise_gene_stats <- function(classfiles, gene_class, input_cpat, input_noORF, gene){
   
   # filter gene of interest
-  gene_class_sqanti = class.files %>% filter(associated_gene == gene)
+  gene_class_sqanti = classfiles %>% filter(associated_gene == gene)
   
   # extract the coding potential related information from CPAT
   gene_class_sqanti = merge(gene_class_sqanti, rbind(input_cpat[,c("seq_ID","coding_status")], input_noORF[,c("seq_ID","coding_status")]), by.x = "isoform", by.y = "seq_ID")
@@ -90,14 +90,14 @@ summarise_gene_stats <- function(class.files, gene_class, input_cpat, input_noOR
 # Output:
   # df: summarised descriptives of all target gene into one table (using information after running FICLE)
 
-all_summarise_gene_stats <- function(Gene_class,class.files,input_cpat,input_noORF,TargetGene){
+all_summarise_gene_stats <- function(Gene_class,class_files,input_cpat,input_noORF,TargetGene){
 
   # merged list of output of each target gene into one dataframe
   Gene_class_df = bind_rows(Gene_class, .id = "associated_gene") %>% dplyr::rename("Isoform" = "X") %>% subset(., select = -c(isoform))
 
   # run summarise_gene_stats for each target gene into a list
   TargetGene = sort(TargetGene)   
-  Merged_gene_class = lapply(TargetGene, function(x) summarise_gene_stats(class.files,Gene_class_df,input_cpat,input_noORF,x))
+  Merged_gene_class = lapply(TargetGene, function(x) summarise_gene_stats(class_files,Gene_class_df,input_cpat,input_noORF,x))
   
   # combine list into dataframe
   Merged_gene_class_df = do.call(cbind,Map(cbind,Merged_gene_class))

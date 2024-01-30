@@ -25,6 +25,12 @@
 
 suppressMessages(library("ggdendro"))
 suppressMessages(library("cowplot"))
+suppressMessages(library("dplyr"))
+suppressMessages(library("tidyr"))
+suppressMessages(library("ggplot2"))
+suppressMessages(library("tibble"))
+suppressMessages(library("stringr"))
+suppressMessages(library("wesanderson"))
 
 
 ## ------------------- input_FICLE_splicing_results_tGene
@@ -43,11 +49,28 @@ input_FICLE_splicing_results_tGene <- function(TG_anno_dir, gene, filename){
   
   file = paste0(TG_anno_dir,"/", gene,"/Stats/", gene, filename)
   cat("Read in:", file, "\n")
-  file_df = if(!file.size(file) == 0){read.csv(file)}else{as.data.frame()}
-  
+  file_df = if(file.size(file) > 1){read.csv(file)}else{data.frame()}
+ 
   return(file_df)
 }
 
+
+input_FICLE_all_perGene <- function(TG_anno_dir, gene){
+  
+  files <- list.files(path = paste0(TG_anno_dir,"/",gene,"/Stats"), full.names = T)
+  filenames <- list.files(path = paste0(dirnames$targ_anno,"/",gene,"/Stats")) 
+  filenames <- gsub(pattern = "\\.csv$", "", filenames)
+  filenames <- gsub(pattern = paste0(gene,"_"), "", filenames)
+  input <-  lapply(files, function(x){if(file.size(x) > 1){
+      print(x) 
+      read.csv(x)
+    }else{
+      data.frame()
+  }})
+  names(input) <- filenames
+  
+  return(input)
+}
 
 
 ## ------------------- dendro_AS_dataset
@@ -83,26 +106,26 @@ plot_dendro_Tgene <- function(TG_anno_dir, gene){
   
   # read in files from FICLE
   # gene_tab = documents for each transcript and exon whether it's skipped, or contains IR
-  gene_Exontab = input_FICLE_splicing_results_tGene(TG_anno_dir, gene, "_Exon_tab.csv")
-  tab = input_FICLE_splicing_results_tGene(TG_anno_dir, gene, "_Exonskipping_generaltab.csv")
+  gene_Exontab = input_FICLE_splicing_results_tGene(TG_anno_dir, gene, "_exon_tab.csv")
+  tab = input_FICLE_splicing_results_tGene(TG_anno_dir, gene, "_general_exon_level.csv")
   
   # plot the cluster lines of the isoforms (grouped by splicing events) using a dendrogram
-  # for mouse Apoe, there are over 2000 isoforms therefore avoid generating the cluster lines as memory intensive
-  if(gene != "Apoe"){
-    gene_Exontab[gene_Exontab=="1001"]<-3
-    gene_Exontab = gene_Exontab %>% column_to_rownames(., var = "X")
-    cluster = hclust(dist(gene_Exontab[,2:ncol(gene_Exontab)]))
-    hcd = as.dendrogram(cluster)
-    ddata <- dendro_data(hcd, type = "rectangle")
-    clusterl = ggplot(segment(ddata)) + 
-      geom_segment(aes(x = x, y = y, xend = xend, yend = yend)) + 
-      coord_flip() + scale_y_reverse(expand = c(0.2, 0)) +   theme_dendro() + labs(title = "\n")
-  }
+  gene_Exontab[gene_Exontab=="1001"]<-3
+  gene_Exontab = gene_Exontab %>% column_to_rownames(., var = "isoform")
+  cluster = hclust(dist(gene_Exontab[,2:ncol(gene_Exontab)]))
+  hcd = as.dendrogram(cluster)
+  ddata <- dendro_data(hcd, type = "rectangle")
+  clusterl = ggplot(segment(ddata)) + 
+    geom_segment(aes(x = x, y = y, xend = xend, yend = yend)) + 
+    coord_flip() + scale_y_reverse(expand = c(0.2, 0)) +   theme_dendro() + labs(title = "\n")
+
   
   # wide to long and classify the splicing event
-  tab = tab %>% gather(Gene, Value, -X) 
+  tab = tab %>% gather(Gene, Value, -isoform) 
   for(i in 1:nrow(tab)){tab[["Col"]][i] = dendro_AS_dataset(tab[["Value"]][i])}
-  tab$X <- factor(tab$X , levels=cluster$labels[cluster$order])
+  tab$isoform <- factor(tab$isoform , levels=cluster$labels[cluster$order])
+  
+  tab$Col[tab$Col == "Absent_FinalExon"] <- "Absent"
   
   tab = tab %>% mutate(Col = factor(Col, levels = c("Present","ES","IR","Absent"))) %>%
     mutate(gencode = as.numeric(word(Gene, c(2), sep = "_")))
@@ -110,25 +133,26 @@ plot_dendro_Tgene <- function(TG_anno_dir, gene){
   # plot
   n1 <- length(unique(tab$X))
   n2 <- length(unique(tab$gencode))
-  p <- ggplot(tab, aes(x = as.factor(gencode), y = X)) +
-    geom_tile(aes(fill = Col)) + labs(x = "") + 
-    scale_fill_manual(name = "Classification", 
+  p <- ggplot(tab, aes(x = as.factor(gencode), y = isoform)) +
+    geom_tile(aes(fill = Col)) + labs(x = "Exons", y = "Isoforms") + 
+    scale_fill_manual(name = "", 
                       labels = c("Present","ES","IR","Absent"),
                       values = c(alpha(wes_palette("Royal2")[5],0.7),
                                  alpha(wes_palette("Royal1")[2],0.7),
                                  wes_palette("Zissou1")[1],
                                  alpha(wes_palette("Chevalier1")[3])),drop = FALSE) +
-    mytheme_font + labs(y = "Transcripts") + 
-    theme(legend.position = "top", axis.title.y=element_blank(), axis.text.y=element_blank(), axis.ticks.y=element_blank()) +
-    scale_x_discrete(breaks = seq(1,max(tab$gencode), by = 2)) +
+    mytheme_font + 
+    theme(legend.position = "top", axis.text.y=element_blank(), axis.ticks.y=element_blank()) +
     geom_line(data = data.frame(x = c(0, n2) + 0.5, y = rep(2:n1, each = 2) - 0.5),
               aes(x = x, y = y, group = y), linetype="dotted") 
   
-  if(gene != "Apoe"){
-    output_hmap = plot_grid(clusterl,p, rel_widths = c(0.3,0.7))
+  if(max(tab$gencode) < 10){
+    p <- p + scale_x_discrete(breaks = seq(1,max(tab$gencode), by = 1))
   }else{
-    output_hmap = plot_grid(p)
+    p <- p + scale_x_discrete(breaks = seq(1,max(tab$gencode), by = 2))
   }
+  
+  output_hmap = plot_grid(p)
   
   return(output_hmap)
 }
@@ -199,8 +223,11 @@ plot_ES_Tgene <- function(TG_anno_dir, gene, merged.class.files){
   p1 <- ES_tally %>% group_by(ES) %>% tally() %>% 
     mutate(col = as.numeric(word(ES, c(2), sep = fixed("_")))) %>% 
     mutate(col_order = factor(col, levels = sort(as.numeric((col))))) %>%
-    ggplot(., aes(x = col_order, y = n)) + geom_bar(stat = "identity") + mytheme + 
-    labs(x = "Gencode Exon Skipped", y = "Number of isoforms")
+    mutate(dataset = "ES") %>%
+    ggplot(., aes(x = col_order, y = n, fill = dataset)) + geom_bar(stat = "identity") + mytheme + 
+    labs(x = "Exon", y = "Number of isoforms") +
+    scale_fill_manual(values = alpha(wes_palette("Royal1")[2],0.7)) +
+    theme(legend.position = "None")
   
   p2 <- plot_n_events(ES_tally,niso,"ES")
   
@@ -252,16 +279,15 @@ plot_IR_Tgene <- function(TG_anno_dir, gene, merged.class.files){
       mutate(perc = n/totalt * 100) %>% 
       mutate(xlabel = factor(gencode, levels = sort(as.numeric(unique(gencode))))) %>%
       ggplot(., aes(x = xlabel, y = n, fill = IR_type, group = IR_type)) + geom_bar(stat = "identity") + 
-      geom_text(aes(label = paste0(round(perc,0),"%")), position = position_stack(vjust = 0.5)) +
-      mytheme + labs(y = "Number of Isoforms", x = "Exon with IR") + 
-      scale_fill_manual(name = "IR Classification", label = c("IR", "IR Match"), 
+      #geom_text(aes(label = paste0(round(perc,0),"%")), position = position_stack(vjust = 0.5)) +
+      mytheme + labs(y = "Number of Isoforms", x = "Exon") + 
+      scale_fill_manual(name = "", label = c("IR", "IR Match"), 
                         values = c(alpha(wes_palette("Zissou1")[[1]],0.2),wes_palette("Zissou1")[[1]])) + 
       theme(legend.position = "top")
   }else{
     p1 <- NULL
     p2 <- NULL
   }
-  
   
   return(list(p1,p2))
 }
@@ -294,7 +320,7 @@ plot_A5A3_Tgene <- function(TG_anno_dir, gene){
     filter(cate != "NA") %>%
     ggplot(.,aes(x = as.factor(xlabel), y = n, fill = cate)) + geom_bar(stat = "identity") + 
     labs(x = "Exon with alternative sites", y = "Number of Isoforms") + mytheme + 
-    scale_fill_manual(name = "Classification", labels = c("A5' Extension", "A3' Extension", "A5' Truncation","A3' Truncation"), 
+    scale_fill_manual(name = "", labels = c("A5' Extension", "A3' Extension", "A5' Truncation","A3' Truncation"), 
                       values = c(wes_palette("IsleofDogs1")[1], alpha(wes_palette("IsleofDogs1")[1],0.4),
                                  wes_palette("IsleofDogs2")[3], alpha(wes_palette("IsleofDogs2")[3],0.4))) #+ 
     #theme(legend.position = "top") + guides(fill=guide_legend(nrow=2, byrow=TRUE)) +
