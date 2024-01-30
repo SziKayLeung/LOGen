@@ -106,9 +106,9 @@ def extract_reads_output_cluster(args, infasta, outsampledf):
         print("Samples are processed in batches, including directory name in output")
         infastadir = os.path.dirname(infasta)
         batchname = os.path.basename(infastadir)
-        sample = batchname + os.path.basename(infasta).split("_")[0]
+        sample = batchname + os.path.basename(infasta).split(".")[0]
     else:
-        sample = os.path.basename(infasta).split("_")[0]
+        sample = os.path.basename(infasta).split(".")[0]
     
     # create <sample>_cluster_report.csv
     out_cluster_name = args.dir + "/" + sample + "_cluster_report.csv"

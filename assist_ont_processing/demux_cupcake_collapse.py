@@ -94,10 +94,12 @@ def demux(args):
         merged_tally_pivot.rename(columns=sample.set_index('BatchBC')['#Sample'], inplace=True)
     
     # replace NA with 0
-    # reset index and rename column
+    # reset index and rename column for input to SQANTI
+    # drop 0 index as this represents reads that were discarded during collapse
     merged_tally_pivot.fillna(0, inplace=True)
     merged_tally_pivot.reset_index(inplace=True)
-    merged_tally_pivot.rename({'pbid': 'isoform'}, axis=1, inplace=True)
+    merged_tally_pivot.rename({'pbid': 'id'}, axis=1, inplace=True)
+    merged_tally_pivot.drop([0], inplace = True)
   
     # write output
     mergedna.to_csv(args.dir + "/" + args.output + "_ignored_id.txt", index = False)
