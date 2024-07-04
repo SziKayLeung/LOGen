@@ -75,21 +75,22 @@ Write a GTF dataframe into a file
 :returns nothing
 https://github.com/mpg-age-bioinformatics/AGEpy/blob/master/AGEpy/gtf.py
 """
-def writeGTF(inGTF,file_path):
-
-    cols=inGTF.columns.tolist()
+def writeGTF(inGTF, file_path):
+    cols = inGTF.columns.tolist()
     if len(cols) == 9:
+        print("yes")
         if 'attribute' in cols:
-            df=inGTF
+            df = inGTF.copy()
     else:
-        df=inGTF[cols[:8]]
-        df['attribute']=""
+        df = inGTF[cols[:8]].copy()
+        df.loc[:, 'attribute'] = ""
         for c in cols[8:]:
-            if c == cols[len(cols)-1]:
-                df['attribute']=df['attribute']+c+' "'+inGTF[c].astype(str)+'";'
+            if c == cols[len(cols) - 1]:
+                df.loc[:, 'attribute'] += c + ' "' + inGTF[c].astype(str) + '";'
             else:
-                df['attribute']=df['attribute']+c+' "'+inGTF[c].astype(str)+'"; '
-    df.to_csv(file_path, sep="\t",header=None,index=None,quoting=csv.QUOTE_NONE)
+                df.loc[:, 'attribute'] += c + ' "' + inGTF[c].astype(str) + '"; '
+
+    df.to_csv(file_path, sep="\t", header=None, index=None, quoting=csv.QUOTE_NONE)
 
 
 """
