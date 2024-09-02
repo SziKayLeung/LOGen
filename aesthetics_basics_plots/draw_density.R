@@ -38,6 +38,40 @@ density_plot <- function(dat,x.var,y.var, x_lab, y_lab,title){
 }
 
 
+corr_plot <- function(dat,x.var,y.var, x_lab, y_lab,title){
+  
+  print(paste0(title))
+  print(paste0("Correlation between", x.var, "and", y.var))
+  
+  print(cor.test(dat[[x.var]],dat[[y.var]]))
+  cor(dat[[x.var]],dat[[y.var]], use = "pairwise.complete.obs")
+  
+  corr.value <- cor(dat[[x.var]],dat[[y.var]], use = "pairwise.complete.obs")
+  p.value <- cor.test(dat[[x.var]],dat[[y.var]], use = "pairwise.complete.obs")$p.value 
+  
+  corr <- grobTree(textGrob(paste0("r = ", round(corr.value, 2), "; P = ", round(p.value,2)), 
+                            x = 0.05, y = 0.90, hjust = 0, 
+                            gp = gpar(col = "black", fontsize = 14, fontface = "italic",family="CM Roman")))
+  
+  x.var <- rlang::sym(quo_name(enquo(x.var)))
+  y.var <- rlang::sym(quo_name(enquo(y.var)))
+  
+  print(paste0("corr.value", corr.value))
+  print(paste0("p.value", p.value))
+  
+  p <- ggplot(dat, aes(x = !! x.var, y = !! y.var)) +
+    annotation_custom(corr) +
+    geom_point(size = 3) +
+    theme_bw() +
+    labs(x = x_lab, y = y_lab, title = paste(title,"")) + 
+    geom_smooth(method=lm, colour = "black", se = FALSE) + 
+    mytheme + 
+    theme(legend.position = "none")
+  
+  return(p)
+}
+
+
 # Aim: plot the histogram of the feature (x.var), with Dataset as colour identifier 
 # Input:
   # dat: df to plot, ensure "Dataset" column exists
