@@ -1,7 +1,6 @@
 
 library("wesanderson")
 library("stringr")
-LOGEN_ROOT = "/gpfs/mrc0/projects/Research_Project-MRC148213/sl693/scripts/LOGen/"
 source(paste0(LOGEN_ROOT, "differential_analysis/base_DIU.R"))
 source(paste0(LOGEN_ROOT, "aesthetics_basics_plots/pthemes.R"))
 
@@ -27,7 +26,7 @@ source(paste0(LOGEN_ROOT, "aesthetics_basics_plots/pthemes.R"))
 runDIU <- function(transMatrixRaw,transMatrix,classf,myfactors,filteringType,filterFC){
   
   # create dataframe: row.names = isoform, col.names = "id" (gene_name)
-  genesdf <- classf %>% select(associated_gene) %>% `colnames<-`(c("id"))
+  genesdf <- classf %>% dplyr::select(associated_gene) %>% `colnames<-`(c("id"))
   
   # remove row.names and associated_gene column from raw expression value (result as matrix) 
   # while recording the associated_gene names for each row
@@ -215,7 +214,7 @@ CalculateIFSample_TimeSeries <- function(IFSampleOutput,rank=NULL,isoSpecific=NU
   # rank = numeric: ranking for CalculateIFSample_TimeSeries
   # isoSpecific = str: isoform ID for CalculateIFSample_TimeSeries
 
-plotIF <- function(gene,ExpInput,pheno,cfiles,design="case_control",majorIso=NULL,rank=3,isoSpecific=NULL,stats=FALSE){
+plotIF <- function(gene,ExpInput,pheno,cfiles,design="case_control",majorIso=NULL,rank=3,isoSpecific=NULL,stats=FALSE,facetTranscripts=TRUE,sex=FALSE){
   
   print(gene)
 
@@ -223,34 +222,41 @@ plotIF <- function(gene,ExpInput,pheno,cfiles,design="case_control",majorIso=NUL
   iso = subset(cfiles, associated_gene == gene) 
   isoexp = ExpInput %>% tibble::rownames_to_column("isoform") %>% 
     filter(isoform %in% iso$isoform) %>% 
-    tibble::column_to_rownames(., var = "isoform") #%>% 
-    #dplyr::select(-c("associated_gene"))
+    tibble::column_to_rownames(., var = "isoform") 
+  
+  if("associated_gene" %in% colnames(isoexp)){isoexp <- isoexp %>% dplyr::select(-c("associated_gene"))}
 
   if(nrow(isoexp) > 1){
-    # groups
-    group1 <- levels(pheno$group)[[1]]
-    group2 <- levels(pheno$group)[[2]]
+    if(isTRUE(sex)){
+      group1 <- levels(pheno$sex)[[1]]
+      group2 <- levels(pheno$sex)[[2]]
+      
+    }else{
+      # groups
+      group1 <- levels(pheno$group)[[1]]
+      group2 <- levels(pheno$group)[[2]]
+    }
     
     ##--- Method 1: determine isoform fraction by mean expression of isoform over sum of mean expression of all isoforms
-    IF1 <- CalculateIFMean(rawExp=isoexp,pheno)
+    #IF1 <- CalculateIFMean(rawExp=isoexp,pheno)
     
     ##--- Method 2: determine isoform fraction for each sample
-    IF2 <- CalculateIFSample(isoexp,pheno,majorIso)
+    IF2 <- CalculateIFSample(rawExp=isoexp,pheno,majorIso)
     if(isTRUE(grepl("PB",IF2$isoform[1]))){
       IF2$renamedIsoform <- paste0("LR.",gsub(paste0("PB.",word(IF2$isoform[1],c(2),sep=fixed("."))), gene, IF2$isoform))
     }else{
       IF2$renamedIsoform <- IF2$isoform
     }
 
-    p1 = IF1[1] %>% reshape2::melt(id="isoform") %>% `colnames<-`(c("Var1", "Var2","value")) %>% 
-      select(Var1,Var2,value) %>%
-      mutate(group = factor(word(Var2,c(1),sep = fixed("_")), levels = c(group1,group2))) %>%
-      ggplot(., aes(x = reorder(Var1,-value), y = value, fill = group)) + geom_bar(stat = "identity", position = position_dodge()) +
-      theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1), legend.position = c(0.9,0.9)) +
-      labs(x = "Isoform", y = "Isoform fraction (%)", title = gene) + mytheme + 
-      scale_fill_manual(values = c(label_colour(group1),
-                                   label_colour(group2)), " ",
-                        labels = c(label_group(group1),label_group(group2))) 
+    #p1 = IF1[1] %>% reshape2::melt(id="isoform") %>% `colnames<-`(c("Var1", "Var2","value")) %>% 
+    #  dplyr::select(Var1,Var2,value) %>%
+    #  mutate(group = factor(word(Var2,c(1),sep = fixed("_")), levels = c(group1,group2))) %>%
+    #  ggplot(., aes(x = reorder(Var1,-value), y = value, fill = group)) + geom_bar(stat = "identity", position = position_dodge()) +
+    #  theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1), legend.position = c(0.9,0.9)) +
+    #  labs(x = "Isoform", y = "Isoform fraction (%)", title = gene) + mytheme + 
+    #  scale_fill_manual(values = c(label_colour(group1),
+    #                               label_colour(group2)), " ",
+    #                    labels = c(label_group(group1),label_group(group2))) 
     
     # group by "iso" category (note some would be minor)
     IsoTally <- IF2 %>% group_by(Iso) %>% tally(perc) %>% arrange(-n)
@@ -271,27 +277,73 @@ plotIF <- function(gene,ExpInput,pheno,cfiles,design="case_control",majorIso=NUL
     }else{
       IsoTally$renamedIsoform <- IsoTally$Iso
     }
-
-    p2 <- IF2 %>% filter(isoform %in% IsoTally$Iso) %>% 
-      group_by(sample,group,time,renamedIsoform) %>% tally(perc) %>%
-      mutate(group = factor(group, levels = c(group1,group2)))
     
-    if(length(unique(p2$renamedIsoform)) == 1){
-      p2 <- ggplot(p2, aes(x = group, y = n, colour = group)) +
-        geom_boxplot(outlier.shape = NA) +
-        geom_point(aes(fill = group), size = 2, position = position_jitterdodge()) +
-        labs(x = "Genotype", y = "Isoform fraction (%)", title = paste0(p2$renamedIsoform))
+    if(!isTRUE(sex)){
+      p2 <- IF2 %>% filter(isoform %in% IsoTally$Iso) %>% 
+        group_by(sample,group,renamedIsoform) %>% tally(perc) %>% 
+        mutate(group = factor(group, levels = c(group1,group2)))
+    }else{
+      p2 <- IF2 %>% filter(isoform %in% IsoTally$Iso) %>% 
+        group_by(sample,sex,renamedIsoform) %>% tally(perc) %>% 
+        mutate(sex = factor(sex, levels = c(group1,group2)))
+    }
+
+    
+    if(isTRUE(facetTranscripts)){
+      print("Facet by transcript")
+      
+      structural_colours <- data.frame(
+        structural_category = c("Ref","FSM", "ISM", "NIC", "NNC", "Genic_Genomic",  "Antisense", "Fusion","Intergenic", "Genic_Intron","coding","non-coding","noORF", "ORF"),
+        structural_col = c("black","#00BFC4",alpha("#00BFC4",0.3),"#F8766D",alpha("#F8766D",0.5),"grey1","grey2","grey3","grey4","grey5",wes_palette("Darjeeling1")[2],wes_palette("Royal1")[2],"black","gray")
+      )
+      
+      p2 <- p2 %>% mutate(n = n / 100)
+      p2 <- merge(cfiles[,c("isoform","structural_category")],p2,by.x = "isoform", by.y = "renamedIsoform", all.y = T)
+      p2 <- merge(p2, structural_colours, by = "structural_category",all.x=T) 
+      p2 <- p2 %>% mutate(isoform = factor(isoform, levels = c(unique(p2 %>% arrange(-n) %>% .[,c("isoform")]))),
+                          sex = factor(ifelse(sex == "M", "Male","Female"),levels = c("Female","Male")))
+      
+      if(isTRUE(sex)){
+        p2 <- ggplot(p2, aes(x = sex, y = n)) + 
+          geom_boxplot(aes(colour = structural_category), outlier.shape = NA) + facet_grid(~isoform) + mytheme + labs(x = "", y = "Isoform fraction") + 
+          geom_jitter(aes(colour = structural_category), size=2, width = 0.2) +
+          scale_colour_manual(values = 
+                                as.character(structural_colours[structural_colours$structural_category %in% unique(p2$structural_category),"structural_col"])) +
+          theme(legend.position = "None",
+                strip.background = element_blank(),
+                strip.text.y = element_blank())
+        
+      }else{
+        p2 <- ggplot(p2, aes(x = group, y = n)) + 
+          geom_boxplot(aes(colour = structural_category), outlier.shape = NA) + facet_grid(~isoform) + mytheme + labs(x = "", y = "Isoform fraction") + 
+          geom_jitter(aes(colour = structural_category), size=2, width = 0.2) +
+          scale_colour_manual(values = 
+                                as.character(structural_colours[structural_colours$structural_category %in% unique(p2$structural_category),"structural_col"])) +
+          theme(legend.position = "None",
+                strip.background = element_blank(),
+                strip.text.y = element_blank())
+      }
+
       
     }else{
-      p2 <- ggplot(p2, aes(x = reorder(renamedIsoform,-n), y = n, colour = group)) + geom_boxplot(outlier.shape = NA) +
-        geom_point(aes(fill = group), size = 2, position = position_jitterdodge()) +
-        labs(x = "Isoform", y = "Isoform fraction (%)", title = gene)   
+      if(length(unique(p2$renamedIsoform)) == 1){
+        p2 <- ggplot(p2, aes(x = group, y = n, colour = group)) +
+          geom_boxplot(outlier.shape = NA) +
+          geom_point(aes(fill = group), size = 2, position = position_jitterdodge()) +
+          labs(x = "Genotype", y = "Isoform fraction (%)", title = paste0(p2$renamedIsoform))
+        
+      }else{
+        p2 <- ggplot(p2, aes(x = reorder(renamedIsoform,-n), y = n, colour = group)) + geom_boxplot(outlier.shape = NA) +
+          geom_point(aes(fill = group), size = 2, position = position_jitterdodge()) +
+          labs(x = "Isoform", y = "Isoform fraction (%)", title = gene)   
+      }
+      p2 <- p2 + scale_colour_manual(values = c(label_colour(group1),label_colour(group2)), " ",
+                                     labels = c(label_group(group1),label_group(group2))) + mytheme +
+        scale_fill_discrete(guide="none") +
+        theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1), legend.position = c(0.9,0.9))
     }
-    p2 <- p2 + scale_colour_manual(values = c(label_colour(group1),label_colour(group2)), " ",
-                          labels = c(label_group(group1),label_group(group2))) + mytheme +
-      scale_fill_discrete(guide="none") +
-      theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1), legend.position = c(0.9,0.9))
     
+
     if(design == "time_series"){
       # remove minor isoforms
       #IF2major <- IF2 %>% filter(Iso != "Minor") 
@@ -317,11 +369,11 @@ plotIF <- function(gene,ExpInput,pheno,cfiles,design="case_control",majorIso=NUL
 
       output = list(p2,p3)
     }else{
-      output = list(p1,p2)
+      output = list(p2)
     }
     
   }else{
-    output = list(p1,p2)
+    output = p2
     if(design == "time_series"){
       p3 = ggplot() + theme_void()
       output = list(p2,p3)
@@ -377,14 +429,14 @@ plotIFAll <- function(Exp,classf,pheno,majorIso){
   range(minorLessThan1$n)
   
   # Select major and minor isoforms
-  major <- merged %>% filter(majorminor != "minor") %>% select(isoform, associated_gene, structural_category, perc)
+  major <- merged %>% filter(majorminor != "minor") %>% dplyr::select(isoform, associated_gene, structural_category, perc)
   minor <- merged %>% filter(majorminor == "minor") 
   
   # Group the minor isoforms for each associated_gene and sum the percentages
   minorgrouped <- aggregate(minor$perc, by=list(associated_gene=minor$associated_gene), FUN=sum) %>%
     mutate(isoform = "minor", structural_category = "minor") %>% 
     dplyr::rename(perc = x) %>%
-    select(isoform, associated_gene, structural_category,perc)
+    dplyr::select(isoform, associated_gene, structural_category,perc)
   
   # Tally the number of minor isoforms per associated_gene
   minortally <- minor %>% group_by(associated_gene) %>% tally() %>% mutate(isoform = "minor")

@@ -13,8 +13,7 @@
 ## ---------- Notes -----------------
 ## 
 
-LOGEN <- "/gpfs/mrc0/projects/Research_Project-MRC148213/sl693/scripts/LOGen/"
-source(paste0(LOGEN, "aesthetics_basics_plots/pthemes.R"))
+source(paste0(LOGEN_ROOT, "aesthetics_basics_plots/pthemes.R"))
 suppressMessages(library(scales))
 
 
@@ -184,10 +183,6 @@ plot_structural_cate <- function(class.files, column="structural_category",rotat
   
   return(p)
 }
-
-numIsoCate +  theme(axis.title.y=element_blank(),
-                    axis.text.y=element_blank(),
-                    axis.ticks.y=element_blank())
 
 ## ------------------- numIso_relationship
 

@@ -13,7 +13,6 @@
 ## ---------- Notes -----------------
 ##
 
-LOGEN_ROOT = "/gpfs/mrc0/projects/Research_Project-MRC148213/sl693/scripts/LOGen/"
 source(paste0(LOGEN_ROOT, "compare_datasets/dataset_identifer.R"))
 source(paste0(LOGEN_ROOT, "aesthetics_basics_plots/draw_venn.R"))
 suppressMessages(library("ggplot2"))
@@ -89,6 +88,23 @@ whole_vs_targeted_plots <- function(classfiles, wholeSamples, targetedSamples, t
   # if FL read >= 1; then considered detected
   matchedSumTargeted$dataset <- apply(matchedSumTargeted, 1, function(x) identify_dataset_by_counts (x[["sumTargeted"]], x[["sumWhole"]], "Targeted","Whole"))
   
+  matchedSumTargeted %>% filter(dataset %in% c("Both","Targeted")) %>% 
+    select(sumTargeted, sumWhole, dataset) %>% reshape2::melt(variable.name = "countName", value.name = "counts") %>% 
+    ggplot(., aes(y = counts, x = as.factor(dataset))) +
+    geom_boxplot() +
+    scale_y_log10() +
+    labs(y = "FL Read counts", x = "")
+  
+
+  #normWhole %>% filter(isoform %in% matchedSumTargeted[matchedSumTargeted$dataset == "Targeted","isoform"]) %>% 
+  #  select(isoform, normalised_counts) %>% 
+  #  aggregate(., list(.$normalised_counts), mean)
+  
+  #  geom_density(alpha=.5) + scale_x_log10() +
+  #  theme_classic() + labs(x = "Counts", y = "Density") +
+  #  scale_fill_discrete(name = "")
+
+  
   # list of isoforms by dataset and commonality
   listIso <- list(
     # Targeted (unique + common)
@@ -120,7 +136,9 @@ whole_vs_targeted_plots <- function(classfiles, wholeSamples, targetedSamples, t
     scale_fill_manual(name = "", values = c(wes_palette("Darjeeling1")[1],wes_palette("Darjeeling2")[1],wes_palette("Darjeeling1")[2])) + 
     theme(legend.position = "top") + theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1))
   
-  if(length(TargetGene) > 30){
+  return(p1)
+  
+  if(length(TargetGene) > 200){
   p1 <- p1 + theme(axis.text.x=element_blank(), axis.ticks.x=element_blank())
   }
   

@@ -177,7 +177,10 @@ plot_transexp_overtime <- function(inputGene, normCounts,design="time_series",sh
   
   if(!is.null(classfiles)){
     df <- merge(df,classfiles[,c("isoform","structural_category")], by = "isoform")
-    df<- df %>% mutate(LRID_struc = paste0(LRID," (", structural_category, ")"))
+    if(!"structural_category" %in% colnames(df)){
+      df <- merge(df,classfiles[,c("isoform","structural_category")], by = "isoform")
+    }
+    df <- df %>% dplyr::mutate(LRID_struc = paste0(LRID," (", structural_category, ")"))
   }
   
   if(!is.null(setorder) & design != "multiple_case_control"){

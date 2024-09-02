@@ -49,7 +49,15 @@ input_FICLE_splicing_results_tGene <- function(TG_anno_dir, gene, filename){
   
   file = paste0(TG_anno_dir,"/", gene,"/Stats/", gene, filename)
   cat("Read in:", file, "\n")
-  file_df = if(file.size(file) > 1){read.csv(file)}else{data.frame()}
+  file_df = if (file.exists(file)) {
+    if (file.size(file) > 1) {
+      file_df <- read.csv(file, sep = ",")
+    } else {
+      file_df <- data.frame()
+    }
+  } else {
+    cat("File does not exist:", file, "\n")
+  }
  
   return(file_df)
 }
@@ -102,13 +110,22 @@ dendro_AS_dataset <- function(value){
 # Output:
   # dendroplot of the gene of interest
 
-plot_dendro_Tgene <- function(TG_anno_dir, gene){
+plot_dendro_Tgene <- function(TG_anno_dir, gene, v2 = TRUE, cfiles = FALSE){
   
   # read in files from FICLE
   # gene_tab = documents for each transcript and exon whether it's skipped, or contains IR
-  gene_Exontab = input_FICLE_splicing_results_tGene(TG_anno_dir, gene, "_exon_tab.csv")
-  tab = input_FICLE_splicing_results_tGene(TG_anno_dir, gene, "_general_exon_level.csv")
+  if(isTRUE(v2)){
+    gene_Exontab = input_FICLE_splicing_results_tGene(TG_anno_dir, gene, "_exon_tab.csv")
+    tab = input_FICLE_splicing_results_tGene(TG_anno_dir, gene, "_general_tab.csv") 
+  }else{
+    gene_Exontab = input_FICLE_splicing_results_tGene(TG_anno_dir, gene, "_Exon_tab.csv") %>% dplyr::rename(., "isoform" = "X")
+    tab = input_FICLE_splicing_results_tGene(TG_anno_dir, gene, "_Exonskipping_generaltab.csv") %>% dplyr::rename(., "isoform" = "X")
+  }
   
+  if(!isFALSE(cfiles)){
+    isoID <- cfiles[cfiles$associated_gene == gene,"isoform"]
+    gene_Exontab <- gene_Exontab %>% filter(isoform %in% isoID)
+  }
   # plot the cluster lines of the isoforms (grouped by splicing events) using a dendrogram
   gene_Exontab[gene_Exontab=="1001"]<-3
   gene_Exontab = gene_Exontab %>% column_to_rownames(., var = "isoform")
@@ -131,7 +148,7 @@ plot_dendro_Tgene <- function(TG_anno_dir, gene){
     mutate(gencode = as.numeric(word(Gene, c(2), sep = "_")))
   
   # plot
-  n1 <- length(unique(tab$X))
+  n1 <- length(unique(tab$isoform))
   n2 <- length(unique(tab$gencode))
   p <- ggplot(tab, aes(x = as.factor(gencode), y = isoform)) +
     geom_tile(aes(fill = Col)) + labs(x = "Exons", y = "Isoforms") + 
@@ -144,7 +161,7 @@ plot_dendro_Tgene <- function(TG_anno_dir, gene){
     mytheme_font + 
     theme(legend.position = "top", axis.text.y=element_blank(), axis.ticks.y=element_blank()) +
     geom_line(data = data.frame(x = c(0, n2) + 0.5, y = rep(2:n1, each = 2) - 0.5),
-              aes(x = x, y = y, group = y), linetype="dotted") 
+              aes(x = x, y = y, group = y), linetype="dotted")  
   
   if(max(tab$gencode) < 10){
     p <- p + scale_x_discrete(breaks = seq(1,max(tab$gencode), by = 1))

@@ -10,7 +10,7 @@
 ## ---------- packages -----------------
 
 # Specify the libraries to load
-libraries_to_load <- c("data.table", "stringr", "dplyr", "ggplot2", "optparse", "here")
+libraries_to_load <- c("data.table", "stringr", "dplyr", "ggplot2", "optparse")
 
 # Load or install each library
 for (library_name in libraries_to_load) {
@@ -23,9 +23,9 @@ for (library_name in libraries_to_load) {
 
 ## ---------- source functions -----------------
 
-LOGEN_ROOT ="/lustre/projects/Research_Project-MRC148213/lsl693/scripts/LOGen"
-source(paste0(LOGEN_ROOT, "/transcriptome_stats/read_sq_classification.R"))
-source(paste0(LOGEN_ROOT, "/differential_analysis/plot_usage.R"))
+LOGEN ="/lustre/projects/Research_Project-MRC148213/lsl693/scripts/LOGen/"
+source(paste0(LOGEN, "transcriptome_stats/read_sq_classification.R"))
+source(paste0(LOGEN, "differential_analysis/plot_usage.R"))
 
 
 ## ---------- arguments -----------------

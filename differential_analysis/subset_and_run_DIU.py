@@ -14,7 +14,6 @@ old_stdout = sys.stdout
 RSCRIPTPATH = distutils.spawn.find_executable('Rscript')
 RSCRIPT_DIU = os.path.dirname(os.path.realpath(__file__)) + "/run_DIU_commandLine.R"
 # include rownames in classification file
-#print(RSCRIPT_DIU)
 
 if os.system(RSCRIPTPATH + " --version")!=0:
     print("Rscript executable not found! Abort!", file=sys.stderr)
@@ -65,6 +64,7 @@ def generate_gene_specific_files(args, gene):
 
 def run_DIU(args, gene):
     runRDIU = RSCRIPTPATH + " {s} -c {d}/{g}{c} -e {d}{g}{e} -t {t} -p {p} -f {f} &> {d}/{g}_r.log ".format(s=RSCRIPT_DIU,c='_classification.txt',e='_normalised_expression.txt',t=args.name,d=args.dir,g=gene,p=args.phenotype,f=args.factor)
+    print(RSCRIPT_DIU)
     subprocess.run(runRDIU, shell=True)
     
 
