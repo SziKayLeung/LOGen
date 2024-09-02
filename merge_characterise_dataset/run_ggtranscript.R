@@ -74,8 +74,8 @@ ggTranRNASeqPlots <- function(inputDir, inputgtf, transcriptID, filterCount=0){
 
 # inputPfam: dataframe with 3 columns: <domain> <gene> <coordinates>
   # i.e <Apolipoprotein> <Apoe> <chr7:19696464-19697099> 
-ggTranPlots <- function(inputgtf,classfiles,isoList,colours,lines,selfDf=NULL,gene=NULL,inputPfam=NULL,rnaseqDir=NULL,rnaseqTransID=NULL,rnaseqFilterCount=10,simple=FALSE,
-                        inputCpat=NULL,cpatSpecies=NULL){
+ggTranPlots <- function(inputgtf,classfiles,isoList,colours,lines,selfDf=NULL,gene=NULL,inputPfam=NULL,rnaseqDir=NULL,rnaseqTransID=NULL,rnaseqFilterCount=10,simple=FALSE,squish=TRUE,
+                        inputCpat=NULL,cpatSpecies=NULL,codingTranscript=FALSE,facet=TRUE){
   
   if(any(duplicated(isoList))){
     print("Duplicated isoforms")
@@ -84,10 +84,12 @@ ggTranPlots <- function(inputgtf,classfiles,isoList,colours,lines,selfDf=NULL,ge
   
   GTF <- as.data.frame(subset(inputgtf, transcript_id %in% isoList & type == "exon"))
   relCols <- c("isoform","structural_category","associated_transcript")
-  xaxislevelsF1 <- c("Reference","FSM", "ISM", "NIC", "NNC", "Genic_Genomic",  "Antisense", "Fusion","Intergenic", "Genic_Intron")
+  xaxislevelsF1 <- c("Ref","FSM", "ISM", "NIC", "NNC", "Genic_Genomic",  "Antisense", "Fusion","Intergenic", "Genic_Intron")
   GTF <- merge(GTF,classfiles[classfiles$isoform %in% isoList, relCols], by.x = "transcript_id", by.y = "isoform", all = T) %>% 
-    mutate(structural_category = ifelse(grepl("ENSM",transcript_id),"Reference",as.character(structural_category))) %>%
+    mutate(structural_category = ifelse(!transcript_id %in% classfiles$isoform,"Ref",as.character(structural_category))) %>%
+    mutate(structural_category = ifelse(grepl("ORF",gene_id),"ORF",structural_category)) %>%
     mutate(transcript_id = factor(transcript_id, levels = isoList))
+
   
   CDS <- as.data.frame(subset(inputgtf, transcript_id %in% isoList & type == "CDS"))
   
@@ -101,18 +103,26 @@ ggTranPlots <- function(inputgtf,classfiles,isoList,colours,lines,selfDf=NULL,ge
              end = as.numeric(word(word(coordinates,c(2),sep = ":"),c(2),sep="-")),
              strand = GTF$strand[1],
              structural_category = "Pfam",
-             Category = "Pfam"
+             Category = "Pfam",
+             type = "exon"
              )%>% 
-      select(-coordinates) 
+      dplyr::select(-coordinates) 
     Pfam$transcript_id = factor(Pfam$transcript_id, levels = unique(Pfam$transcript_id))
   }
+  
+  structural_colours <- rbind(
+    data.frame(
+      structural_category = c("Ref","FSM", "ISM", "NIC", "NNC", "Genic_Genomic",  "Antisense", "Fusion","Intergenic", "Genic_Intron","coding","non-coding","noORF", "ORF"),
+      structural_col = c("black","#00BFC4",alpha("#00BFC4",0.3),"#F8766D",alpha("#F8766D",0.3),"grey1","grey2","grey3","grey4","grey5",wes_palette("Darjeeling1")[2],wes_palette("Royal1")[2],"black","gray")
+    )
+  )
   
   if(!is.null(selfDf)){
     
     structural_colours <- rbind(
       data.frame(
-        structural_category = c("Reference","FSM", "ISM", "NIC", "NNC", "Genic_Genomic",  "Antisense", "Fusion","Intergenic", "Genic_Intron","coding","non-coding","noORF"),
-        structural_col = c("#0C0C78","#00BFC4",alpha("#00BFC4",0.3),"#F8766D",alpha("#F8766D",0.3),"grey1","grey2","grey3","grey4","grey5",wes_palette("Darjeeling1")[2],wes_palette("Royal1")[2],"#0C0C78")
+        structural_category = c("Ref","FSM", "ISM", "NIC", "NNC", "Genic_Genomic",  "Antisense", "Fusion","Intergenic", "Genic_Intron","coding","non-coding","noORF", "ORF"),
+        structural_col = c("black","#00BFC4",alpha("#00BFC4",0.3),"#F8766D",alpha("#F8766D",0.3),"grey1","grey2","grey3","grey4","grey5",wes_palette("Darjeeling1")[2],wes_palette("Royal1")[2],"black","gray")
       ),
       data.frame(structural_category = selfDf[selfDf$Category == "DTE","colour"], 
                  structural_col = selfDf[selfDf$Category == "DTE","colour"])
@@ -140,6 +150,8 @@ ggTranPlots <- function(inputgtf,classfiles,isoList,colours,lines,selfDf=NULL,ge
     
   }
   
+  GTF <<- GTF
+  
   coding_prob_colours <- function(num,cpatSpecies){
     
     if(cpatSpecies == "human"){
@@ -159,14 +171,26 @@ ggTranPlots <- function(inputgtf,classfiles,isoList,colours,lines,selfDf=NULL,ge
     }
   }
 
+  GTF <<- GTF
   if(!is.null(inputCpat)){
     if(!cpatSpecies %in% c("human","mouse") ){
       stop("cpatSpecies argument required <human/mouse>")
-    }else{
-      GTF <- merge(GTF, inputCpat[,c("ID","Coding_prob")], by.x = "transcript_id", by.y = "ID", all.x = T)
+      
+    }else if(isTRUE(codingTranscript)){
+      inputCpat <- inputCpat %>% group_by(seq_ID) %>% top_n(1, Coding_prob)
+      GTF <- merge(GTF, inputCpat[,c("seq_ID","Coding_prob")], by.x = "transcript_id", by.y = "seq_ID", all.x = T)
       GTF <- GTF %>% mutate(PBtranscript = ifelse(grepl("PB.",transcript_id),word(transcript_id,c(3),sep=fixed(".")),"NA"))
       GTF <- GTF %>% mutate(transcript_id = ifelse(grepl("PB.",transcript_id), paste0("LR.",gene,".",PBtranscript),as.character(transcript_id)))
       GTF$structural_category <- unlist(lapply(GTF$Coding_prob, function(x) coding_prob_colours(x,cpatSpecies)))
+    
+    }else{
+      tGTF <- GTF[!grepl("ORF", GTF$gene_id),]
+      pGTF <- GTF[grepl("ORF", GTF$gene_id),]
+      pGTF <- merge(pGTF, inputCpat[,c("ID","Coding_prob")], by.x = "transcript_id", by.y = "ID", all.x = T)
+      pGTF <- pGTF %>% mutate(PBtranscript = ifelse(grepl("PB.",transcript_id),word(transcript_id,c(3),sep=fixed(".")),"NA"))
+      pGTF <- pGTF %>% mutate(transcript_id = ifelse(grepl("PB.",transcript_id), paste0("LR.",gene,".",PBtranscript),as.character(transcript_id)))
+      pGTF$structural_category <- unlist(lapply(pGTF$Coding_prob, function(x) coding_prob_colours(x,cpatSpecies)))
+      GTF <- rbind(tGTF, pGTF %>% dplyr::select(-Coding_prob,-PBtranscript))
     }
 
   }
@@ -182,15 +206,44 @@ ggTranPlots <- function(inputgtf,classfiles,isoList,colours,lines,selfDf=NULL,ge
   
   if(!is.null(selfDf)){
     
-    p <- grescaled %>%
-      dplyr::filter(type == "exon") %>%
-      ggplot(aes(xstart = start,xend = end,y = transcript_id)) +
-      geom_range(aes(fill = structural_category)) +
-      labs(y ="") + 
-      geom_intron(data = grescaled %>% dplyr::filter(type == "intron"),arrow.min.intron.length = 300) +
-      facet_grid(rows = vars(Category), scales = "free_y", space='free') +
+    if(!isTRUE(squish)){
+      p <- gexons %>% ggplot(aes(xstart = start,xend = end, y = transcript_id)) +
+        geom_range(aes(fill = structural_category)) +
+        geom_intron(data = to_intron(gexons, "transcript_id"),aes(strand = strand)) +
+        labs(y = "")
+        
+    }else{
+      if(grescaled$strand[1] == "-"){
+        print("Negative strand")
+        p <- grescaled %>% dplyr::filter(type == "exon") %>%
+          ggplot(aes(xstart = end,xend = start,y = transcript_id)) 
+      }else{
+        p <- grescaled %>% dplyr::filter(type == "exon") %>%
+          ggplot(aes(xstart = start,xend = end,y = transcript_id)) 
+      }
+      
+      p <- p +
+        geom_range(aes(fill = structural_category)) +
+        labs(y ="") + 
+        geom_intron(data = grescaled %>% dplyr::filter(type == "intron"),arrow.min.intron.length = 300)
+  
+    }
+    
+   p <- p +
       scale_fill_manual(values = as.character(structural_colours[structural_colours$structural_category %in% unique(GTF$structural_category),"structural_col"])) +
-      scale_colour_manual(values = as.character(structural_colours[structural_colours$structural_category %in% unique(GTF$structural_category),"structural_col"]))
+      scale_colour_manual(values = as.character(structural_colours[structural_colours$structural_category %in% unique(GTF$structural_category),"structural_col"])) +
+     theme_classic() +
+     theme(legend.position = "None", 
+           axis.line.x = element_line(colour = "grey80"),
+           panel.background = element_rect(fill = "white", colour = "grey50"),
+           panel.border = element_rect(fill = NA, color = "grey50", linetype = "dotted"),
+           axis.text.y= element_text(size=12),
+           strip.text.y = element_text(size = 12, color = "black"),
+           strip.background = element_rect(fill = "white", colour = "grey50"))
+   
+   if(isTRUE(facet)){
+     p <- p + facet_grid(rows = vars(Category), scales = "free_y", space='free') 
+   }
     
     
     #as.data.frame(GTF)  %>%
@@ -204,16 +257,37 @@ ggTranPlots <- function(inputgtf,classfiles,isoList,colours,lines,selfDf=NULL,ge
     
   }else{
     GTF$transcript_id <- factor(GTF$transcript_id, levels = unlist(lapply(isoList, function(x) replace_pbID(x,gene))), ordered = TRUE)
-    
+    grescaled$transcript_id <- factor(grescaled$transcript_id, levels = unlist(lapply(isoList, function(x) replace_pbID(x,gene))), ordered = TRUE)
 
     if(isFALSE(simple)){
       p <-  grescaled %>%
+        dplyr::filter(type == "exon") %>%
         ggplot(aes(xstart = start,xend = end, y = transcript_id)) +
-        geom_range(data = CDS) +
+        geom_range(aes(fill = transcript_id)) +
         geom_intron(data = grescaled %>% dplyr::filter(type == "intron"),arrow.min.intron.length = 300) +
+        facet_grid(rows = vars(structural_category), space = 'free_y', scales = "free_y") +
         scale_fill_manual(values = colours) +
-        labs(y ="") + 
-        facet_grid(rows = vars(structural_category), space = 'free_y', scales = "free_y")
+        labs(y ="") 
+      
+    }else if(isTRUE(codingTranscript)){
+      print("coding transcript")
+      grescaled <- grescaled %>% mutate(structural_category = ifelse(grepl("ENS",transcript_id),"Reference", structural_category))
+      p <- grescaled %>%
+        dplyr::filter(type == "exon") %>%
+        ggplot(aes(xstart = start,xend = end, y = transcript_id)) +
+        geom_range(aes(fill = structural_category)) +
+        geom_intron(data = grescaled %>% dplyr::filter(type == "intron"),arrow.min.intron.length = 300) +
+        scale_fill_manual(values = as.character(structural_colours[structural_colours$structural_category %in% unique(GTF$structural_category),"structural_col"]))  +
+        labs(y ="") +
+        theme_classic() +
+        theme(legend.position = "None", 
+              axis.line.x = element_line(colour = "grey80"),
+              panel.background = element_rect(fill = "white", colour = "grey50"),
+              panel.border = element_rect(fill = NA, color = "grey50", linetype = "dotted"),
+              axis.text.y= element_text(size=12),
+              strip.text.y = element_text(size = 12, color = "black"),
+              strip.background = element_rect(fill = "white", colour = "grey50"))
+    
       
     }else{
            
@@ -222,30 +296,23 @@ ggTranPlots <- function(inputgtf,classfiles,isoList,colours,lines,selfDf=NULL,ge
         geom_range(aes(fill = transcript_id)) +
         geom_intron(data = grescaled %>% dplyr::filter(type == "intron"),arrow.min.intron.length = 300)  +
         scale_fill_manual(values = colours) +
-        labs(y ="") +
-        theme_minimal() +
-        theme(panel.background = element_blank(),
-              panel.grid.major = element_blank(), 
-              panel.grid.minor = element_blank(),
-              axis.ticks.x=element_blank(), 
+        labs(y ="") + theme_classic() +
+        theme(legend.position = "None", 
+              axis.line.x = element_line(colour = "white"),
+              axis.line.y = element_line(colour = "white"),
+              panel.background = element_rect(fill = "white", colour = "white"),
+              panel.border = element_rect(fill = NA, color = "white", linetype = "dotted"),
+              axis.text.y= element_text(size=12),
+              strip.text.y = element_text(size = 12, color = "white"),
+              strip.background = element_rect(fill = "white", colour = "white"),
               axis.text.x=element_blank(),
-              axis.ticks.y=element_blank(),
-              legend.position = "None") 
+              axis.ticks.x=element_blank(),
+              axis.ticks.y=element_blank())
+        
     }
 
   }
   
-  if(isFALSE(simple)){
-    p <- p + theme_classic() +
-      theme(legend.position = "None", 
-            axis.line.x = element_line(colour = "grey80"),
-            panel.background = element_rect(fill = "white", colour = "grey50"),
-            panel.border = element_rect(fill = NA, color = "grey50", linetype = "dotted"),
-            axis.text.y= element_text(size=12),
-            strip.text.y = element_text(size = 12, color = "black"),
-            strip.background = element_rect(fill = "white", colour = "grey50"))
-  }
-
   
   if(is.null(rnaseqDir)){
     return(p)
