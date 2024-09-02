@@ -1,5 +1,13 @@
 #!/bin/bash
 
+LOGEN_ROOT=/lustre/projects/Research_Project-MRC148213/lsl693/scripts/LOGen
+PROTEOMIC_SRC=/lustre/projects/Research_Project-MRC148213/lsl693/scripts/LOGen/proteomics/bin
+export PATH=$PATH:${LOGEN_ROOT}/merge_characterise_dataset
+export PYTHONPATH=$PYTHONPATH:/lustre/projects/Research_Project-MRC148213/lsl693/software/cDNA_Cupcake/sequence
+export PATH=$PATH:/lustre/projects/Research_Project-MRC148213/lsl693/software/cDNA_Cupcake/sequence
+export PATH=$PATH:/lustre/projects/Research_Project-MRC148213/lsl693/software/cDNA_Cupcake
+export PATH=$PATH:/lustre/projects/Research_Project-MRC148213/lsl693/software/SQANTI3
+
 collate_longread_processed(){
   mkdir -p $WKD_ROOT/2_longread_processed; cd $WKD_ROOT/2_longread_processed
   cp $ISO_CLASSFILE $WKD_ROOT/2_longread_processed/
@@ -43,7 +51,7 @@ summarise_longread_data(){
     --output_fasta $NAME.6frame.fasta
 
   echo "#*************************************** Summarise long-read transcriptome"
-  python $LREAD/transcriptome_summary/src/transcriptome_summary_ck.py \
+  python $PROTEOMIC_SRC/transcriptome_summary.py \
     --sq_out $ISO_CLASSFILE \
     --ensg_to_gene $WKD_ROOT/3_reference_tables/ensg_gene.tsv \
     --enst_to_isoname $WKD_ROOT/3_reference_tables/enst_isoname.tsv \
@@ -77,7 +85,25 @@ call_orf(){
     --num_cores 2 \
     --output $NAME"_best_orf.tsv"
   
+  # extract best orf fasta sequence  
+  extract_fasta_bestorf.py --fa $WKD_ROOT/5_calledOrfs/$NAME".ORF_seqs.fa" --orf $WKD_ROOT/5_calledOrfs/$NAME".ORF_prob.best.tsv" --o_name $NAME"_bestORF" --o_dir $WKD_ROOT/5_calledOrfs &> orfextract.log
+  
+  source deactivate
+  
+  # generate gtf from fasta sequence
+  source activate nanopore  
+  
+  cd $WKD_ROOT/5_calledOrfs
+  minimap2 -t 30 -ax splice -uf --secondary=no -C5 -O6,24 -B4 $GENOME_FASTA $NAME"_bestORF.fasta" > $NAME.sam 2> $NAME.map.log
+  samtools sort -O SAM $NAME.sam > $NAME.sorted.sam
+ 
+  # cupcake tool
+  source activate sqanti2_py3
+  sam_to_gff3.py $NAME.sam -s ${SPECIES}
+  gffread $NAME.gff3 -T -o $NAME.gtf
+
   source deactivate 
+  
   source activate lrp
 }
 
@@ -91,7 +117,7 @@ refine_calledorf(){
     --pb_fasta $ISO_FASTA \
     --coding_score_cutoff $coding_score_cutoff &> refine_org.log
 
-  python $LREAD/visualization_track/src/make_pacbio_cds_gtf.py \
+  python $PROTEOMIC_SRC/make_pacbio_cds_gtf.py \
     --name $NAME \
     --sample_gtf $ISO_GTF \
     --refined_database $NAME"_orf_refined.tsv" \
@@ -100,7 +126,7 @@ refine_calledorf(){
     --include_transcript yes &> make_cds_gtf1.log
 
   # modified make_pacbio_cds_gtf.py to remove cpm
-  python $LREAD/visualization_track/src/make_pacbio_cds_gtf.py \
+  python $PROTEOMIC_SRC/make_pacbio_cds_gtf.py \
     --name $NAME"_no_transcript" \
     --sample_gtf $ISO_GTF \
     --refined_database $NAME"_orf_refined.tsv" \
@@ -119,8 +145,9 @@ classify_protein(){
     --reference_gtf $GENOME_GTF \
     --reference_name gencode \
     --num_cores 2 &> rename_cds_to_exon.log
-
-  python $LREAD/sqanti_protein/src/sqanti3_protein.py $NAME.transcript_exons_only.gtf \
+  
+  # ensure sqanti3_qc in the same folder as $LREAD/protein_classification/src/
+  python $PROTEOMIC_SRC/sqanti3_protein.py $NAME.transcript_exons_only.gtf \
     $NAME.cds_renamed_exon.gtf \
     $WKD_ROOT/5_calledOrfs/$NAME"_best_orf.tsv" \
     gencode.transcript_exons_only.gtf \
@@ -152,7 +179,7 @@ classify_protein(){
     --ensg_gene $WKD_ROOT/3_reference_tables/ensg_gene.tsv \
     --name $NAME \
     --dest_dir ./
-
+    
   python $LREAD/protein_classification/src/protein_classification.py \
     --sqanti_protein $NAME.protein_classification_w_meta.tsv \
     --name $NAME"_unfiltered" \
@@ -176,7 +203,7 @@ classify_protein(){
 
 run_hybrid_annotation(){
   mkdir -p $WKD_ROOT/8_hybrid_annotation; cd $WKD_ROOT/8_hybrid_annotation
-  python $LREAD/make_hybrid_database/src/make_hybrid_database_ck.py \
+  python $PROTEOMIC_SRC/make_hybrid_database.py \
     --protein_classification $WKD_ROOT/7_classified_protein/$NAME".classification_filtered.tsv" \
     --gene_lens $WKD_ROOT/3_reference_tables/gene_lens.tsv \
     --pb_fasta $WKD_ROOT/7_classified_protein/$NAME".filtered_protein.fasta" \
@@ -266,7 +293,7 @@ generate_cds_tracks(){
   # Long Read
   convert_gtf_bed12 $WKD_ROOT/7_classified_protein/$NAME"_with_cds_refined" $NAME"_refined" make_region
   convert_gtf_bed12 $WKD_ROOT/7_classified_protein/$NAME"_with_cds_filtered" $NAME"_filtered" make_region
-  convert_gtf_bed12 $WKD_ROOT/8_hybrid_annotation/$NAME"_cds_high_confidence" $NAME"_high_confidence" make_region
+  #convert_gtf_bed12 $WKD_ROOT/8_hybrid_annotation/$NAME"_cds_high_confidence" $NAME"_high_confidence" make_region
 }
 
 generate_peptide_tracks(){
@@ -296,7 +323,7 @@ generate_peptide_tracks(){
 
   make_peptide refined
   make_peptide filtered
-  make_peptide hybrid
+  #make_peptide hybrid
 }
 
 compare_protein_groups(){
@@ -305,12 +332,14 @@ compare_protein_groups(){
     --gencode_fasta $WKD_ROOT/3_reference_tables/gencode_protein.fasta \
     --pacbio_fasta $WKD_ROOT/7_classified_protein/$NAME".protein_refined.fasta" \
     --uniprot_fasta $UNIPROT_FASTA
-
-  python $LREAD/protein_groups_compare/src/protein_groups_compare.py \
-    --pg_fileOne $WKD_ROOT/9_metamorpheus/gencode/$NAME"_gencode_search_results"/Task1SearchTask/AllQuantifiedProteinGroups.gencode.tsv \
-    --pg_fileTwo $WKD_ROOT/9_metamorpheus/hybrid/$NAME"_hybrid_search_results"/Task1SearchTask/AllQuantifiedProteinGroups.hybrid.tsv \
-    --mapping accession_map_gencode_uniprot_pacbio.tsv \
-    --output ./
+    
+  if [ -e $WKD_ROOT/9_metamorpheus/hybrid/$NAME"_hybrid_search_results"/Task1SearchTask/AllQuantifiedProteinGroups.hybrid.tsv ]; then 
+    python $LREAD/protein_groups_compare/src/protein_groups_compare.py \
+      --pg_fileOne $WKD_ROOT/9_metamorpheus/gencode/$NAME"_gencode_search_results"/Task1SearchTask/AllQuantifiedProteinGroups.gencode.tsv \
+      --pg_fileTwo $WKD_ROOT/9_metamorpheus/hybrid/$NAME"_hybrid_search_results"/Task1SearchTask/AllQuantifiedProteinGroups.hybrid.tsv \
+      --mapping accession_map_gencode_uniprot_pacbio.tsv \
+      --output ./
+  fi
 
   python $LREAD/protein_groups_compare/src/protein_groups_compare.py \
     --pg_fileOne $WKD_ROOT/9_metamorpheus/gencode/$NAME"_gencode_search_results"/Task1SearchTask/AllQuantifiedProteinGroups.gencode.tsv \

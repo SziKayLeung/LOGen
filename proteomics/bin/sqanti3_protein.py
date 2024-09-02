@@ -23,7 +23,7 @@ from collections import defaultdict, Counter, namedtuple
 from collections.abc import Iterable
 from csv import DictWriter, DictReader
 
-utilitiesPath = os.path.join(os.path.dirname(os.path.realpath(__file__)), "utilities")
+utilitiesPath = os.path.join(os.path.dirname(os.path.realpath(__file__)))
 sys.path.insert(0, utilitiesPath)
 sys.path.append('/lustre/projects/Research_Project-MRC148213/sl693/software/SQANTI3/')
 import sqanti3_qc 
