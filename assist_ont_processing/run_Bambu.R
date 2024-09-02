@@ -17,6 +17,8 @@ suppressMessages(library("bambu"))
 option_list <- list( 
   make_option(c("-b", "--bam"), type="character", 
               help="aligned bam file", metavar="character"),
+  make_option(c("--index"), type="character", 
+              help="index for selecting bam files", metavar="character", default="bam"),
   make_option(c("-i", "--input_dir"),  default=NULL, 
               help="directory containing input aligned bam file"),
   make_option(c("-f", "--fa"), type="character",  
@@ -42,9 +44,9 @@ if(is.null(opt$gtf) & is.null(opt$annotations_RDS)){
 if(is.null(opt$input_dir)){
   test.bam <- opt$bam
 }else{
-  test.bam <- list.files(path = opt$input_dir, pattern = "bam", full = T)
+  test.bam <- list.files(path = opt$input_dir, pattern = paste0(opt$index, "$"), full = T)
 }
-message("Processing following bam file:")
+message(paste0("Processing following bam file (n = ", length(test.bam)),"): ")
 for (bam_file in test.bam) {
   message(bam_file)
 }
