@@ -50,22 +50,26 @@ to return specified sample.fa, sample name must in the 1st part of prefix (i.e S
 :returns list: fasta files in input directory 
 """
 def list_named_fasta(args):
-    
-    # store name into fastafiles list
+    # Store the names of fasta files
     fasta_files = []
-    for file in glob.glob(args.fasta + "/" + "*" + args.index + "*"):
-        print(file)
-        # if argument of selected samples is specified
+    
+    # Use recursive glob to search for files in all subdirectories
+    search_pattern = args.fasta + "/**/*" + args.index + "*"
+    
+    # Find all files that match the pattern recursively
+    for file in glob.glob(search_pattern, recursive=True):
+        
+        # If the selected samples are specified
         if args.samples is not None:
             for sample in args.samples:
                 if sample in file:
                     print("Including:", file, "\n")
                     fasta_files.append(file)
         else:
-            print("Including:", file, "\n")
+            #print("Including:", file, "\n")
             fasta_files.append(file)
     
-    return(fasta_files)
+    return fasta_files
 
 
 """
