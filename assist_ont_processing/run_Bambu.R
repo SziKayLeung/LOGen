@@ -28,7 +28,9 @@ option_list <- list(
   make_option(c("-a", "--annotations_RDS"), metavar="character", default=NULL, 
               help="annotations RDS file"),
   make_option(c("-o", "--output_dir"), type="character", 
-              help="output directory", metavar="character")
+              help="output directory", metavar="character"),
+  make_option(c("-q", "--quant"), type="character", 
+              help="TRUE is to quantify", metavar="character", default = TRUE)
 )
 
 
@@ -58,7 +60,12 @@ if(!is.null(opt$annotations_RDS)){
 }
 
 message("Running Bambu")
-se <- bambu(reads = test.bam, annotations = annotations, genome = opt$fa)
+if(opt$quant == "TRUE"){
+  message("Quantifiying")
+  se <- bambu(reads = test.bam, annotations = annotations, genome = opt$fa, quant = TRUE)
+} else {
+  se <- bambu(reads = test.bam, annotations = annotations, genome = opt$fa, quant = FALSE)
+}
 save(se, file = paste0(opt$output_dir, "/se.RData"))
 
 message("Write Bambu output")
