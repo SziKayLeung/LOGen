@@ -120,13 +120,19 @@ def extract_reads_output_cluster(args, infasta, outsampledf):
     out_cluster = open(out_cluster_name,"w")
     out_cluster.write("cluster_id,read_id,read_type\n")
     
+    out_sample_name = args.dir + "/" + sample + "_sample_id.csv"
+    out_sample = open(out_sample_name, "w")
+    out_sample.write("id,primer\n")
+    
     # write each fasta ID in fasta sequences
     for fasta in fasta_sequences: 
         out_cluster.write("transcript/" + fasta.id + "," + fasta.id + ",FL\n")
+        out_sample.write(str(fasta.id) + "," + sample + "\n")
         outsampledf.write(str(fasta.id) + "," + sample + "\n")
     
     # close <sample>_cluster_report.csv
     out_cluster.close()
+    out_sample.close()
                 
 
 """
