@@ -24,6 +24,7 @@ for (library_name in libraries_to_load) {
 ## ---------- source functions -----------------
 
 LOGEN ="/lustre/projects/Research_Project-MRC148213/lsl693/scripts/LOGen/"
+LOGEN_ROOT ="/lustre/projects/Research_Project-MRC148213/lsl693/scripts/LOGen/"
 source(paste0(LOGEN, "transcriptome_stats/read_sq_classification.R"))
 source(paste0(LOGEN, "differential_analysis/plot_usage.R"))
 
@@ -80,7 +81,7 @@ Exp$targeted <- merge(Exp$targeted, class.files[,c("isoform","associated_gene","
 
 # expression
 ExpMod <- list(
-  ontTargTranRaw = class.files %>% dplyr::select(associated_gene, contains(opt$typecharacter)),
+  ontTargTranRaw = class.files %>% dplyr::select(associated_gene, contains(opt$typecharacter, ignore.case = FALSE)),
   ontTargTranNorm = Exp$targeted %>%
     dplyr::select(sample,normalised_counts, isoform) %>% tidyr::spread(., sample, value = normalised_counts) %>%
     tibble::remove_rownames(.) %>% tibble::column_to_rownames(var="isoform")
@@ -93,6 +94,29 @@ message("Read in: ",opt$factor,"\n")
 factorsInput = read.table(opt$factor)
 head(factorsInput)
 
+
+## ---------- Check samples --------------
+message("Number of samples in raw expression data: ", ncol(ExpMod$ontTargTranRaw) - 1)
+message("Number of samples in normalised expression data: ", ncol(ExpMod$ontTargTranNorm))
+
+if(length(setdiff(colnames(ExpMod$ontTargTranNorm), colnames(ExpMod$ontTargTranRaw))) != 0) {
+  stop("Error: samples in normalised expression data but not in raw expression data, missing samples in original expression data")
+}
+
+if(length(setdiff(colnames(ExpMod$ontTargTranRaw)[-1], colnames(ExpMod$ontTargTranNorm))) != 0) {
+  message("Samples in raw expression data but not in normalised expression data")
+  print(setdiff(colnames(ExpMod$ontTargTranRaw)[-1], colnames(ExpMod$ontTargTranNorm)))
+  message("DIU analysis using normalised expression data, therefore not using the above samples")
+  ExpMod$ontTargTranRaw  <- ExpMod$ontTargTranRaw %>% select(associated_gene, colnames(ExpMod$ontTargTranNorm))
+  factorsInput <- factorsInput %>% filter(sample %in% colnames(ExpMod$ontTargTranNorm))
+}
+
+# check the same samples in both files
+if(!setequal(factorsInput$sample, colnames(ExpMod$ontTargTranRaw)[-1])){
+  stop("Error: mismatched samples in phenotype and raw expression file")
+}
+
+message("Final number of samples for differential usage analysis: ", length(factorsInput$sample))
 
 ## ---------- Process DIU -----------------
 
