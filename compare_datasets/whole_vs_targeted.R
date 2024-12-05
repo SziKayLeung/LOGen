@@ -15,8 +15,13 @@
 
 source(paste0(LOGEN_ROOT, "compare_datasets/dataset_identifer.R"))
 source(paste0(LOGEN_ROOT, "aesthetics_basics_plots/draw_venn.R"))
+source(paste0(LOGEN, "aesthetics_basics_plots/pthemes.R"))
 suppressMessages(library("ggplot2"))
 suppressMessages(library("wesanderson"))
+suppressMessages(library("reshape2"))
+suppressMessages(library("dplyr"))
+suppressMessages(library("tidyr"))
+
 
 ## ------------------- whole_vs_targeted_exp
 
@@ -136,6 +141,7 @@ whole_vs_targeted_plots <- function(classfiles, wholeSamples, targetedSamples, t
     scale_fill_manual(name = "", values = c(wes_palette("Darjeeling1")[1],wes_palette("Darjeeling2")[1],wes_palette("Darjeeling1")[2])) + 
     theme(legend.position = "top") + theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1))
   
+  matchedSumTargeted <<- matchedSumTargeted
   return(p1)
   
   if(length(TargetGene) > 200){
