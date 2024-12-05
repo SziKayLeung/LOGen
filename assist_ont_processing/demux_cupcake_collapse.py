@@ -115,6 +115,7 @@ def main():
     parser.add_argument("read_stat", help='\t\tread_stat.txt generated from Cupcake/Isoseq3 collapse')
     parser.add_argument('sample_id', help='\t\tcsv file of reads and sample; <id,primer> for ont\t <cluster_id,id,primer> for isoseq')
     parser.add_argument('--dataset', default = "ont", choices=['ont', 'isoseq'], help='\t\tdataset:"ont" or "isoseq"')
+    parser.add_argument('--sampleLevel', default = True, help='\t\tmerging at a sample level i.e headers = <read_id>"')
     parser.add_argument('-o','--output', required=False, help='\t\tPrefix for output abundance file; Default: demux_fl_count.csv.')
     parser.add_argument('-s','--sample', required=False, default=None, help='\t\ttsv file of samples to replace <#sample> <BatchBC> (optional)')
     parser.add_argument('-d','--dir', required=False, help='\t\tDirectory for output files. Default: Directory of read_stat.txt.')
@@ -127,9 +128,17 @@ def main():
         args.dir =  os.path.dirname(args.read_stat)
         
     # read in files
-    print("Reading in files...")
-    args.read_stat = pd.read_csv(args.read_stat, sep = "\t")
-    args.sample_id = pd.read_csv(args.sample_id)
+    print("Reading in read stat file...")
+    args.read_stat = pd.read_csv(args.read_stat)
+    
+    print("Reading in sample id file...")
+    _, extension = os.path.splitext(args.sample_id)
+    if ".txt" == extension:
+        print("as txt file")
+        args.sample_id = pd.read_csv(args.sample_id, sep = "\t")
+    else:
+        print("as csv file")
+        args.sample_id = pd.read_csv(args.sample_id)
 
     demux(args)
     print("All Done")
