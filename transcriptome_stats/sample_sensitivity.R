@@ -50,5 +50,13 @@ no_of_isoforms_sample <- function(class){
   p2 <- ggplot(dat, aes(x = as.factor(num_samples), y = log(sum_FL))) + geom_boxplot() + 
     mytheme + labs(x = "Number of Samples", y = "Sum FL Read Count (Log10)")
   
-  return(list(p1,p2))
+  return(list(p1,p2, dat))
+}
+
+categories <- function(nread) {
+  ifelse(nread < 10, nread,
+         ifelse(nread >= 10 & nread <= 20, "10-20",
+                ifelse(nread >= 21 & nread <= 30, "21-30",
+                       ifelse(nread >= 31 & nread <= 40, "31-40",
+                              ifelse(nread >= 41 & nread <= 50, "41-50", "> 50")))))
 }
