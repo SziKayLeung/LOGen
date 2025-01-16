@@ -129,15 +129,18 @@ def main():
         
     # read in files
     print("Reading in read stat file...")
-    args.read_stat = pd.read_csv(args.read_stat)
+    _, extension = os.path.splitext(args.read_stat)
+    if ".txt" == extension:
+        args.read_stat = pd.read_csv(args.read_stat, sep = "\t")
+    else:
+        args.read_stat = pd.read_csv(args.read_stat)
+        
     
     print("Reading in sample id file...")
     _, extension = os.path.splitext(args.sample_id)
     if ".txt" == extension:
-        print("as txt file")
         args.sample_id = pd.read_csv(args.sample_id, sep = "\t")
     else:
-        print("as csv file")
         args.sample_id = pd.read_csv(args.sample_id)
 
     demux(args)
