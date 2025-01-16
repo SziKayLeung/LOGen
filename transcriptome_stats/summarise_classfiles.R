@@ -75,7 +75,47 @@ descriptives_summary <- function(class_files_all, class_files_annoGenes) {
   return(results_df)
 } # <- Corrected final closing parenthesis for the function
 
-# Example usage:
-# summary_table <- descriptives_summary(class_files, annoGenesStats)
-# print(summary_table)
-
+monoExonic_summary <- function(preFilteredClassFile, demuxExpression){
+  
+  # subset to mono exonic isoforms in original SQANTI classification file
+  monoExonic <- preFilteredClassFile[preFilteredClassFile$exons == 1,]
+  
+  # expresion data (totaFL of all reads across sample)
+  demuxTotal <- demuxExpression %>% mutate(TotalFL = rowSums(select(., -id)))
+  monoExonicdemux <- demuxTotal %>% filter(id %in% monoExonic$isoform)
+  if(isFALSE(nrow(monoExonicdemux) == nrow(monoExonic))){
+    message("WARNING: number of mono-exonic isoforms in classification file not the same as the expression data")
+  }
+  
+  # initiate output list summary
+  monoExonicStats <- list()
+  
+  monoExonicStats[["Total number of mono-exonic transcripts"]] <- nrow(monoExonic)
+  
+  monoExonicStats[["Percentage of mono-exonic transcripts out of all transcripts (before SQANTI filtering) "]] <- 
+    round(nrow(monoExonic)/nrow(input$preFilteredClassFile) * 100,2)
+  
+  monoExonicStats[["Total number of FL reads of mono-exonic transcripts"]] <- sum(monoExonicdemux$TotalFL)
+  
+  monoExonicStats[["Percentage of FL reads of mono-exonic transcripts"]] <- 
+    round(sum(monoExonicdemux$TotalFL)/sum(demuxTotal$TotalFL) * 100,2)
+  
+  
+  monoExonicSqantiKept <- monoExonic[monoExonic$filter_result == "Isoform",]
+  monoExonicStats[["Number of mono-exonic transcripts kept after SQANTI filtering"]] <- nrow(monoExonicSqantiKept)
+  
+  monoExonicStats[["Percentage of mono-exonic transcripts kept out of all mono-exonic transcripts"]] <- 
+    round(nrow(monoExonicSqantiKept)/nrow(monoExonic) * 100,2)
+  
+  monoExonicMeaningful <- monoExonicSqantiKept[!monoExonicSqantiKept$structural_category %in% c("genic_intron","intergenic","genic"),]
+  
+  monoExonicStats[["Number of mono-exonic transcripts kept after further filtering"]] <- nrow(monoExonicMeaningful)
+  
+  monoExonicStats[["Percentage of mono-exonic transcripts kept after further filtering"]] <- 
+    round(nrow(monoExonicMeaningful)/nrow(monoExonic) * 100,2)
+  
+  results_df <- as.data.frame(t(as.data.frame(monoExonicStats)))
+  colnames(results_df) <- "Value"
+  
+  return(results_df)
+}
