@@ -1,4 +1,3 @@
-
 #!/usr/bin/env Rscript
 ## ----------Script-----------------
 ##
@@ -6,8 +5,15 @@
 ## subset_class_by_length()
 ## summarise_subsetted_classLength
 ## statsReadsByLength()
+## summarise_subsetted_classLength
+## summarise_subsetted_classLength_read
+## subset_class_length_SQFiltered
+## final_kept_shortDataset
 ## ---------------------------------
 
+# packages
+suppressMessages(library("data.table"))
+suppressMessages(library("dplyr"))
 
 ## ------------------- subset_class_by_length
 
