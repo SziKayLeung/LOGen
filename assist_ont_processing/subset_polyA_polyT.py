@@ -38,7 +38,7 @@ def subset_poly_A_T(all_sequence_dict):
 
 def main():
     parser = argparse.ArgumentParser(description="Extracting polyA and polyT sequences")
-    parser.add_argument('--fa', "--input_fasta", help='\t\tFasta sequence.')
+    parser.add_argument('--fa', "--input_fasta/q", help='\t\tFasta/Fastq sequence.')
     parser.add_argument('--o_name',"--output_name", help='\t\t Output name.')
     parser.add_argument('--o_dir', "--output_dir", help='\t\tOutput path and name for list of ONT retained transcript IDs')
 
@@ -57,11 +57,11 @@ def main():
     logging.info("Number of reads with polyTA:" + str(len(polyTA_seq)))
     logging.warning("Number of reads with no polyA or polyT:" + str(len(nopolyA_T_seq)))
 
-    rw.prepare_output(polyT_seq, args.o_dir, args.o_name + "_PolyT")
-    rw.prepare_output(polyA_seq, args.o_dir, args.o_name + "_PolyA")
-    rw.prepare_output(polyAT_seq, args.o_dir, args.o_name + "_PolyAT")
-    rw.prepare_output(polyTA_seq, args.o_dir, args.o_name + "_PolyTA")
-    rw.prepare_output(nopolyA_T_seq, args.o_dir, args.o_name + "_NoPolyA_T")
+    rw.prepare_output(args.fa, polyT_seq, args.o_dir, args.o_name + "_PolyT")
+    rw.prepare_output(args.fa, polyA_seq, args.o_dir, args.o_name + "_PolyA")
+    rw.prepare_output(args.fa, polyAT_seq, args.o_dir, args.o_name + "_PolyAT")
+    rw.prepare_output(args.fa, polyTA_seq, args.o_dir, args.o_name + "_PolyTA")
+    rw.prepare_output(args.fa, nopolyA_T_seq, args.o_dir, args.o_name + "_NoPolyA_T")
     logging.info("All Done")
 
 if __name__ == "__main__":
