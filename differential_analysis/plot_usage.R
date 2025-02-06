@@ -224,6 +224,10 @@ plotIF <- function(gene,ExpInput,pheno,cfiles,design="case_control",majorIso=NUL
     filter(isoform %in% iso$isoform) %>% 
     tibble::column_to_rownames(., var = "isoform") 
   
+  # remove rows with NA values 
+  # this would have been generated if the normalised expression dataframe was generated from a subset of samples 
+  isoexp <- isoexp[complete.cases(isoexp), ]
+  
   if("associated_gene" %in% colnames(isoexp)){isoexp <- isoexp %>% dplyr::select(-c("associated_gene"))}
 
   if(nrow(isoexp) > 1){
