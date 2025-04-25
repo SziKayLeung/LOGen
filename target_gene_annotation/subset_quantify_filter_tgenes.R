@@ -23,9 +23,14 @@
 suppressMessages(library("optparse"))
 
 # source general scripts to input SQANTI class.files
-LOGEN = "/gpfs/mrc0/projects/Research_Project-MRC148213/sl693/scripts/LOGen/"
+args <- commandArgs(trailingOnly = FALSE)
+script_path <- sub("--file=", "", args[grep("--file=", args)])
+script_path <- file.path(script_path) 
+LOGEN_ROOT <-paste0( dirname(dirname(script_path)),"/")
+LOGEN <- paste0(LOGEN_ROOT,"/")
+
 sink("/dev/null")
-suppressMessages(sapply(list.files(path = paste0(LOGEN,"transcriptome_stats"), pattern="*.R", full = T), source,.GlobalEnv))
+suppressMessages(sapply(list.files(path = paste0(LOGEN_ROOT,"transcriptome_stats"), pattern="*.R", full = T), source,.GlobalEnv))
 sink()
 
 ## ---------- arguments -----------------
@@ -35,6 +40,7 @@ option_list <- list(
   make_option(c("-e", "--expression"), type="character", default=NA, help="expression matrix"),
   make_option(c("-g", "--target_genes"), type="character", default=NA, help="tsv file of list of target genes, no header", metavar="character"),
   make_option(c("-f", "--filter"), action="store_true", default=FALSE, help="Apply filtering thresholds"),
+  make_option(c("-m", "--monoexonic"), type="integer", default=0L, help="filtering  of monoexonic isoforms: levels 0 = no filtering (all monoexonic isoforms kept), 1 = filtering of Intergenic, Genic Intron, Genic Genomic, 2 = all except FSM"),
   make_option(c("--nsample"), type="integer", default=5L, help="filtering: minimum number of samples [default %default]", metavar="number"),
   make_option(c("--nreads"), type="integer", default=10L, help="filtering: minimum number of reads [default %default]", metavar="number"),
   make_option(c("-d", "--dir"), type="character", default=NA, help="output directory, optional", metavar="character")
@@ -65,6 +71,10 @@ if(!is.na(opt$expression)){
   stop("expression abundance must be provided. See script usage (--help)")
 }
 
+if (!is.na(opt$target_genes) && opt$target_genes == "NA") {
+  opt$target_genes <- NA
+}
+
 if (!is.na(opt$target_genes)){
   cat("Reading",opt$target_genes,"\n")
   targetgenes = array(read.table(opt$target_genes)[["V1"]])
@@ -76,6 +86,21 @@ if (!is.na(opt$target_genes)){
 # Total number of isoforms and genes prior to filtering for target genes
 cat("Total number of isoforms:", nrow(input.class.files),"\n")
 cat("Total number of genes:", length(unique(input.class.files$associated_gene)),"\n")
+
+# removing monoexonic isoforms if specified
+if(opt$monoexonic == 1){
+  message("Filtering of genic_genomic, intergenic and genic intronic monoexonic isoforms")
+  monoExonicIntergenic <- input.class.files %>% filter(exons == 1) %>% filter(structural_category %in% c("Genic_Genomic", "Intergenic", "Genic_Intron"))
+  input.class.files <- input.class.files %>% filter(!isoform %in% monoExonicIntergenic$isoform)
+  cat("Total number of isoforms after filtering mono-exonic isoforms:", nrow(input.class.files),"\n")
+}else if(opt$monoexonic == 2){
+  message("Filtering of all monoexonic isoforms except FSM monoexonic")
+  monoexonicDiscard <- input.class.files %>% filter(exons == 1) %>% filter(structural_category != "FSM")
+  input.class.files <- input.class.files %>% filter(!isoform %in% monoexonicDiscard$isoform)
+  cat("Total number of isoforms after filtering mono-exonic isoforms:", nrow(input.class.files),"\n")
+}else{
+  message("No filtering of monoexonic isoforms")
+}
 
 # keep only the target genes
 if(!is.na(opt$target_genes)){
