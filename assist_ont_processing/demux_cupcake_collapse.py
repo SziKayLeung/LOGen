@@ -74,7 +74,7 @@ def demux(args):
         merged = pd.merge(args.read_stat, args.sample_id, how = "outer", on = "id")
     else:
         print("Processing Iso-Seq dataset")
-        merged = pd.merge(args.read_stat, args.sample_id[["cluster_id","primer"]], how = "outer", left_on = "id", right_on = "cluster_id")
+        merged = pd.merge(args.read_stat, args.sample_id[["id","primer"]], how = "outer", left_on = "id", right_on = "id")
     
     # document reads that are discarded by Iso-Seq3 collapse
     # i.e. entry in sample_id.csv but not in read_stat.txt
